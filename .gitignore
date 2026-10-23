@@ -1,0 +1,8 @@
+build/
+dist/
+*.exe
+*.obj
+*.pdb
+.vs/
+.claude/
+Thumbs.db

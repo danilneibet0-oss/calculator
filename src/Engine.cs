@@ -1,0 +1,278 @@
+using System;
+using System.Globalization;
+using System.Text;
+
+namespace Calculator
+{
+    /// <summary>Calculator logic without any UI. Numbers are kept as decimal for exact results.</summary>
+    public sealed class CalcEngine
+    {
+        public static string DecimalSeparator = CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator;
+
+        const int MaxDigits = 16;
+
+        string entry = "0";          // invariant representation of the number being typed / shown
+        string expression = "";
+        string errorText;
+        decimal? left;
+        char op;
+        bool newEntry = true;        // next digit starts a fresh number
+        bool afterEquals;
+        char lastOp;
+        decimal lastRhs;
+
+        public string Expression { get { return expression; } }
+        public bool HasError { get { return errorText != null; } }
+        public string DisplayText { get { return errorText ?? Group(entry); } }
+
+        public void Digit(char d)
+        {
+            StartEntry();
+            if (entry.Replace("-", "").Replace(".", "").Length >= MaxDigits) return;
+            entry = entry == "0" ? d.ToString() : entry + d;
+        }
+
+        public void Decimal()
+        {
+            StartEntry();
+            if (entry.IndexOf('.') < 0) entry += ".";
+        }
+
+        public void Backspace()
+        {
+            if (HasError || newEntry) return;
+            entry = entry.Substring(0, entry.Length - 1);
+            if (entry == "" || entry == "-") entry = "0";
+        }
+
+        public void ClearEntry()
+        {
+            if (HasError || afterEquals) { Clear(); return; }
+            entry = "0";
+            newEntry = false;
+        }
+
+        public void Clear()
+        {
+            entry = "0";
+            expression = "";
+            errorText = null;
+            left = null;
+            op = '\0';
+            lastOp = '\0';
+            newEntry = true;
+            afterEquals = false;
+        }
+
+        public void Negate()
+        {
+            if (HasError) return;
+            if (entry == "0") return;
+            entry = entry.StartsWith("-") ? entry.Substring(1) : "-" + entry;
+        }
+
+        public void Operator(char c)
+        {
+            if (HasError) return;
+            if (op != '\0' && !newEntry)
+            {
+                decimal res;
+                if (!Apply(left.Value, op, Current(), out res)) return;
+                left = res;
+                entry = Format(res);
+            }
+            else if (op == '\0')
+            {
+                left = Current();
+            }
+            op = c;
+            expression = Num(left.Value) + " " + Symbol(c);
+            newEntry = true;
+            afterEquals = false;
+        }
+
+        public void Evaluate()
+        {
+            if (HasError) return;
+            decimal res;
+            if (op != '\0')
+            {
+                decimal rhs = Current();
+                expression = Num(left.Value) + " " + Symbol(op) + " " + Num(rhs) + " =";
+                if (!Apply(left.Value, op, rhs, out res)) return;
+                lastOp = op;
+                lastRhs = rhs;
+                op = '\0';
+                left = null;
+            }
+            else if (afterEquals && lastOp != '\0')
+            {
+                decimal cur = Current();
+                expression = Num(cur) + " " + Symbol(lastOp) + " " + Num(lastRhs) + " =";
+                if (!Apply(cur, lastOp, lastRhs, out res)) return;
+            }
+            else
+            {
+                expression = Num(Current()) + " =";
+                newEntry = true;
+                afterEquals = true;
+                return;
+            }
+            entry = Format(res);
+            newEntry = true;
+            afterEquals = true;
+        }
+
+        public void Percent()
+        {
+            if (HasError) return;
+            decimal res = 0;
+            if (op != '\0')
+            {
+                try { res = left.Value * Current() / 100m; }
+                catch (OverflowException) { SetError("Переполнение"); return; }
+                expression = Num(left.Value) + " " + Symbol(op) + " " + Num(res);
+            }
+            else
+            {
+                expression = "0";
+            }
+            entry = Format(res);
+            newEntry = true;
+            afterEquals = false;
+        }
+
+        public void Sqrt()
+        {
+            if (HasError) return;
+            decimal x = Current();
+            if (x < 0) { SetError("Недопустимый ввод"); return; }
+            Unary("√(" + Num(x) + ")", (decimal)Math.Sqrt((double)x));
+        }
+
+        public void Square()
+        {
+            if (HasError) return;
+            decimal x = Current();
+            try { Unary("sqr(" + Num(x) + ")", x * x); }
+            catch (OverflowException) { SetError("Переполнение"); }
+        }
+
+        public void Reciprocal()
+        {
+            if (HasError) return;
+            decimal x = Current();
+            if (x == 0) { SetError("Деление на ноль невозможно"); return; }
+            Unary("1/(" + Num(x) + ")", 1m / x);
+        }
+
+        void Unary(string text, decimal result)
+        {
+            expression = (op != '\0' ? Num(left.Value) + " " + Symbol(op) + " " : "") + text;
+            entry = Format(result);
+            newEntry = true;
+            afterEquals = false;
+        }
+
+        void StartEntry()
+        {
+            if (HasError) Clear();
+            if (newEntry)
+            {
+                entry = "0";
+                newEntry = false;
+                if (op == '\0')
+                {
+                    expression = "";
+                    lastOp = '\0';
+                    afterEquals = false;
+                }
+            }
+        }
+
+        decimal Current()
+        {
+            return decimal.Parse(entry, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+        }
+
+        bool Apply(decimal a, char o, decimal b, out decimal result)
+        {
+            result = 0;
+            try
+            {
+                switch (o)
+                {
+                    case '+': result = a + b; break;
+                    case '-': result = a - b; break;
+                    case '*': result = a * b; break;
+                    case '/':
+                        if (b == 0)
+                        {
+                            SetError(a == 0 ? "Результат не определён" : "Деление на ноль невозможно");
+                            return false;
+                        }
+                        result = a / b;
+                        break;
+                }
+                return true;
+            }
+            catch (OverflowException)
+            {
+                SetError("Переполнение");
+                return false;
+            }
+        }
+
+        void SetError(string text)
+        {
+            errorText = text;
+            left = null;
+            op = '\0';
+            lastOp = '\0';
+            newEntry = true;
+            afterEquals = false;
+        }
+
+        static string Symbol(char c)
+        {
+            switch (c)
+            {
+                case '*': return "×";
+                case '/': return "÷";
+                case '-': return "−";
+                default: return c.ToString();
+            }
+        }
+
+        static string Num(decimal v) { return Group(Format(v)); }
+
+        /// <summary>Rounds to 15 significant digits and returns an invariant string without trailing zeros.</summary>
+        public static string Format(decimal v)
+        {
+            if (v == 0) return "0";
+            int intDigits = (int)Math.Floor(Math.Log10((double)Math.Abs(v))) + 1;
+            int dec = Math.Min(28, Math.Max(0, 15 - intDigits));
+            v = Math.Round(v, dec, MidpointRounding.AwayFromZero);
+            v = v / 1.0000000000000000000000000000m;
+            string s = v.ToString(CultureInfo.InvariantCulture);
+            return s == "-0" ? "0" : s;
+        }
+
+        /// <summary>Adds thousands separators and the local decimal separator to an invariant number string.</summary>
+        public static string Group(string s)
+        {
+            string sign = "";
+            if (s.StartsWith("-")) { sign = "-"; s = s.Substring(1); }
+            string frac = "";
+            int dot = s.IndexOf('.');
+            if (dot >= 0) { frac = DecimalSeparator + s.Substring(dot + 1); s = s.Substring(0, dot); }
+            var sb = new StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (i > 0 && (s.Length - i) % 3 == 0) sb.Append(' ');
+                sb.Append(s[i]);
+            }
+            return sign + sb + frac;
+        }
+    }
+}
