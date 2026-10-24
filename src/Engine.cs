@@ -4,6 +4,14 @@ using System.Text;
 
 namespace Calculator
 {
+    /// <summary>One finished calculation shown in the history panel.</summary>
+    public sealed class HistoryItem
+    {
+        public string Expression;
+        public string Result;   // invariant representation, e.g. "-1234.5"
+        public string ResultText { get { return CalcEngine.Group(Result); } }
+    }
+
     /// <summary>Calculator logic without any UI. Numbers are kept as decimal for exact results.</summary>
     public sealed class CalcEngine
     {
@@ -20,6 +28,40 @@ namespace Calculator
         bool afterEquals;
         char lastOp;
         decimal lastRhs;
+
+        const int MaxHistory = 100;
+        readonly System.Collections.Generic.List<HistoryItem> history = new System.Collections.Generic.List<HistoryItem>();
+
+        /// <summary>Finished calculations, newest first.</summary>
+        public System.Collections.Generic.IList<HistoryItem> History { get { return history; } }
+        /// <summary>Changes whenever History changes, so the UI knows when to redraw it.</summary>
+        public int HistoryVersion { get; private set; }
+
+        public void ClearHistory()
+        {
+            history.Clear();
+            HistoryVersion++;
+        }
+
+        /// <summary>Puts a past result back on the display, ready to be used in a new calculation.</summary>
+        public void Recall(HistoryItem item)
+        {
+            errorText = null;
+            left = null;
+            op = '\0';
+            lastOp = '\0';
+            entry = item.Result;
+            expression = item.Expression;
+            newEntry = true;
+            afterEquals = true;
+        }
+
+        void AddHistory(string expr, string result)
+        {
+            history.Insert(0, new HistoryItem { Expression = expr, Result = result });
+            if (history.Count > MaxHistory) history.RemoveAt(history.Count - 1);
+            HistoryVersion++;
+        }
 
         public string Expression { get { return expression; } }
         public bool HasError { get { return errorText != null; } }
@@ -104,12 +146,14 @@ namespace Calculator
                 lastRhs = rhs;
                 op = '\0';
                 left = null;
+                AddHistory(expression, Format(res));
             }
             else if (afterEquals && lastOp != '\0')
             {
                 decimal cur = Current();
                 expression = Num(cur) + " " + Symbol(lastOp) + " " + Num(lastRhs) + " =";
                 if (!Apply(cur, lastOp, lastRhs, out res)) return;
+                AddHistory(expression, Format(res));
             }
             else
             {

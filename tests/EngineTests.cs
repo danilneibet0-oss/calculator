@@ -36,6 +36,46 @@ static class EngineTests
         return e.DisplayText;
     }
 
+    static void HistoryTests()
+    {
+        var e = new CalcEngine();
+        Check("history empty", e.History.Count.ToString(), "0");
+
+        e.Digit('2'); e.Operator('+'); e.Digit('3'); e.Evaluate();
+        Check("history count", e.History.Count.ToString(), "1");
+        Check("history expression", e.History[0].Expression, "2 + 3 =");
+        Check("history result", e.History[0].Result, "5");
+
+        e.Evaluate(); // repeat last operation: 5 + 3
+        Check("history repeat", e.History[0].Result, "8");
+        Check("history newest first", e.History[1].Result, "5");
+
+        int v = e.HistoryVersion;
+        e.Digit('4'); e.Square();
+        Check("unary not recorded", e.History.Count.ToString(), "2");
+        Check("version unchanged", e.HistoryVersion.ToString(), v.ToString());
+
+        e.Clear();
+        e.Digit('5'); e.Operator('/'); e.Digit('0'); e.Evaluate();
+        Check("error not recorded", e.History.Count.ToString(), "2");
+
+        e.Clear();
+        e.Recall(e.History[1]); // "2 + 3 =" -> 5
+        Check("recall display", e.DisplayText, "5");
+        Check("recall expression", e.Expression, "2 + 3 =");
+        e.Operator('*'); e.Digit('2'); e.Evaluate();
+        Check("recall then continue", e.DisplayText, "10");
+        e.Recall(e.History[e.History.Count - 1]);
+        e.Digit('7');
+        Check("digit after recall starts new number", e.DisplayText, "7");
+
+        e.ClearHistory();
+        Check("history cleared", e.History.Count.ToString(), "0");
+
+        for (int i = 0; i < 150; i++) { e.Clear(); e.Digit('1'); e.Operator('+'); e.Digit('1'); e.Evaluate(); }
+        Check("history capped", e.History.Count.ToString(), "100");
+    }
+
     static int Main()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -63,6 +103,7 @@ static class EngineTests
         Check("recover from error", Run("5/0=7"), "7");
         Check("subtract negative", Run("3-5="), "-2");
         Check("ops change", Run("3+*4="), "12");
+        HistoryTests();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }

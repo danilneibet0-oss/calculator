@@ -63,6 +63,7 @@ namespace Calculator
         public Kind Kind;
         public Theme Theme;
         public string FontFamilyName = "Segoe UI";
+        public static string IconFont = "Segoe MDL2 Assets";
         bool hover, pressed;
 
         public CalcButton()
@@ -116,6 +117,11 @@ namespace Calculator
             float px = Math.Max(10f, Math.Min(Height * 0.36f, Width * 0.30f));
             FontStyle style = Kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
             string family = Text == "⌫" ? "Segoe UI Symbol" : FontFamilyName;
+            if (Text.Length == 1 && Text[0] >= '' && Text[0] <= '')
+            {
+                family = IconFont;
+                px *= 1.2f;
+            }
             using (var f = new Font(family, px, style, GraphicsUnit.Pixel))
                 TextRenderer.DrawText(g, Text, f, ClientRectangle, fore,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
@@ -187,13 +193,113 @@ namespace Calculator
         }
     }
 
+    /// <summary>Owner-drawn list of past calculations; clicking an entry raises ItemChosen.</summary>
+    sealed class HistoryList : ListBox
+    {
+        public Theme Theme;
+        public string FontFamilyName = "Segoe UI";
+        public event Action<HistoryItem> ItemChosen;
+        int hot = -1;
+
+        public HistoryList()
+        {
+            DrawMode = DrawMode.OwnerDrawFixed;
+            BorderStyle = BorderStyle.None;
+            IntegralHeight = false;
+            DoubleBuffered = true;
+            TabStop = false;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ItemHeight = (int)(66 * DeviceDpi / 96f);
+        }
+
+        public void SetItems(System.Collections.Generic.IList<HistoryItem> items)
+        {
+            BeginUpdate();
+            Items.Clear();
+            foreach (HistoryItem it in items) Items.Add(it);
+            EndUpdate();
+            hot = -1;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int idx = IndexFromPoint(e.Location);
+            if (idx != hot) { hot = idx; Invalidate(); }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hot = -1;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            int idx = IndexFromPoint(e.Location);
+            if (e.Button == MouseButtons.Left && idx >= 0 && ItemChosen != null)
+                ItemChosen((HistoryItem)Items[idx]);
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            using (var back = new SolidBrush(Theme.Back)) g.FillRectangle(back, e.Bounds);
+            if (e.Index < 0) return;
+            var item = (HistoryItem)Items[e.Index];
+
+            Rectangle r = Rectangle.Inflate(e.Bounds, -2, -2);
+            if (e.Index == hot)
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var path = new GraphicsPath())
+                using (var br = new SolidBrush(Theme.FnHover))
+                {
+                    int d = 8;
+                    path.AddArc(r.X, r.Y, d, d, 180, 90);
+                    path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+                    path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+                    path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+                    path.CloseFigure();
+                    g.FillPath(br, path);
+                }
+            }
+
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            const TextFormatFlags flags = TextFormatFlags.Right | TextFormatFlags.NoPadding |
+                                          TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
+            var inner = Rectangle.Inflate(r, -10, -6);
+            float small = Math.Max(11f, r.Height * 0.20f);
+            float big = Math.Max(14f, r.Height * 0.36f);
+            using (var f = new Font(FontFamilyName, small, FontStyle.Regular, GraphicsUnit.Pixel))
+                TextRenderer.DrawText(g, item.Expression, f, inner, Theme.Dim, flags | TextFormatFlags.Top);
+            using (var f = new Font(FontFamilyName, big, FontStyle.Bold, GraphicsUnit.Pixel))
+                TextRenderer.DrawText(g, item.ResultText, f, inner, Theme.Text, flags | TextFormatFlags.Bottom);
+        }
+    }
+
     sealed class MainForm : Form
     {
         [DllImport("dwmapi.dll")]
         static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
         readonly CalcEngine engine = new CalcEngine();
         readonly DisplayBox display = new DisplayBox();
+        readonly Panel historyPanel = new Panel();
+        readonly Panel historyHeader = new Panel();
+        readonly Label historyTitle = new Label();
+        readonly HistoryList historyList = new HistoryList();
+        CalcButton clearHistoryButton, historyToggle;
+        int shownHistoryVersion = -1;
         readonly System.Collections.Generic.List<CalcButton> buttons = new System.Collections.Generic.List<CalcButton>();
         readonly string family;
         Theme theme;
@@ -261,19 +367,124 @@ namespace Calculator
                     grid.Controls.Add(b, c, r);
                 }
             root.Controls.Add(grid, 0, 1);
-            Controls.Add(root);
+
+            historyToggle = new CalcButton
+            {
+                Text = "",
+                Kind = Kind.Function,
+                Size = new Size(40, 34),
+                Location = new Point(6, 8),
+                FontFamilyName = family
+            };
+            historyToggle.Click += delegate { ToggleHistory(); };
+            display.Controls.Add(historyToggle);
+            buttons.Add(historyToggle);
+
+            BuildHistoryPanel();
+            Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
+            Controls.Add(historyPanel);
 
             ApplyTheme();
+            SyncHistory();
             Refresh_();
             SystemEvents.UserPreferenceChanged += OnPrefChanged;
         }
 
+        void BuildHistoryPanel()
+        {
+            historyPanel.Dock = DockStyle.Right;
+            historyPanel.Width = 280;
+            historyPanel.Padding = new Padding(4, 0, 4, 4);
+            historyPanel.Visible = false;
+
+            historyList.Dock = DockStyle.Fill;
+            historyList.FontFamilyName = family;
+            historyList.ItemChosen += delegate(HistoryItem item)
+            {
+                engine.Recall(item);
+                Refresh_();
+                ActiveControl = null;
+            };
+            historyList.HandleCreated += delegate { ApplyListTheme(); };
+
+            historyHeader.Dock = DockStyle.Top;
+            historyHeader.Height = 50;
+            historyHeader.Padding = new Padding(8, 8, 0, 8);
+
+            clearHistoryButton = new CalcButton
+            {
+                Text = "Очистить",
+                Kind = Kind.Function,
+                Dock = DockStyle.Right,
+                Width = 96,
+                FontFamilyName = family
+            };
+            clearHistoryButton.Click += delegate { engine.ClearHistory(); SyncHistory(); };
+            buttons.Add(clearHistoryButton);
+
+            historyTitle.Text = "Журнал";
+            historyTitle.Dock = DockStyle.Fill;
+            historyTitle.TextAlign = ContentAlignment.MiddleLeft;
+            historyTitle.Font = new Font(family, 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+
+            historyHeader.Controls.Add(historyTitle);
+            historyHeader.Controls.Add(clearHistoryButton);
+
+            historyPanel.Controls.Add(historyList);
+            historyPanel.Controls.Add(historyHeader);
+            historyPanel.Paint += PaintHistoryEmpty;
+            historyPanel.Resize += delegate { historyPanel.Invalidate(); };
+        }
+
+        void PaintHistoryEmpty(object sender, PaintEventArgs e)
+        {
+            if (historyList.Visible) return;
+            var area = new Rectangle(0, historyHeader.Height, historyPanel.Width, historyPanel.Height - historyHeader.Height);
+            using (var f = new Font(family, 16f, FontStyle.Regular, GraphicsUnit.Pixel))
+                TextRenderer.DrawText(e.Graphics, "Журнал пуст", f, area, theme.Dim,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+
+        void ToggleHistory()
+        {
+            bool show = !historyPanel.Visible;
+            int w = historyPanel.Width;
+            if (WindowState == FormWindowState.Normal)
+            {
+                int target = Width + (show ? w : -w);
+                MinimumSize = new Size(MinimumSize.Width + (show ? w : -w), MinimumSize.Height);
+                Width = target;
+            }
+            historyPanel.Visible = show;
+            ActiveControl = null;
+        }
+
+        void SyncHistory()
+        {
+            if (shownHistoryVersion == engine.HistoryVersion) return;
+            shownHistoryVersion = engine.HistoryVersion;
+            historyList.SetItems(engine.History);
+            historyList.Visible = engine.History.Count > 0;
+            clearHistoryButton.Enabled = engine.History.Count > 0;
+            historyPanel.Invalidate();
+        }
+
+        void ApplyListTheme()
+        {
+            // Dark scrollbar for the history list.
+            try { SetWindowTheme(historyList.Handle, theme.Dark ? "DarkMode_Explorer" : "Explorer", null); } catch { }
+        }
+
         static string PickFont()
         {
+            string result = "Segoe UI";
             using (var fonts = new InstalledFontCollection())
                 foreach (FontFamily f in fonts.Families)
-                    if (f.Name == "Segoe UI Variable Text") return f.Name;
-            return "Segoe UI";
+                {
+                    if (f.Name == "Segoe UI Variable Text") result = f.Name;
+                    if (f.Name == "Segoe Fluent Icons") CalcButton.IconFont = f.Name;
+                }
+            return result;
         }
 
         void OnPrefChanged(object sender, UserPreferenceChangedEventArgs e)
@@ -288,6 +499,14 @@ namespace Calculator
             BackColor = theme.Back;
             display.Theme = theme;
             foreach (CalcButton b in buttons) b.Theme = theme;
+            historyPanel.BackColor = theme.Back;
+            historyHeader.BackColor = theme.Back;
+            historyTitle.BackColor = theme.Back;
+            historyTitle.ForeColor = theme.Text;
+            historyList.Theme = theme;
+            historyList.BackColor = theme.Back;
+            if (historyList.IsHandleCreated) ApplyListTheme();
+            historyList.Invalidate();
             if (IsHandleCreated) SetDarkTitle();
             Invalidate(true);
         }
@@ -335,6 +554,7 @@ namespace Calculator
                 case "C": engine.Clear(); break;
             }
             Refresh_();
+            SyncHistory();
         }
 
         protected override void OnKeyPress(KeyPressEventArgs e)
@@ -358,6 +578,7 @@ namespace Calculator
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Delete) { Press("CE"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.H) { ToggleHistory(); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.C)
             {
                 try { Clipboard.SetText(engine.DisplayText.Replace(" ", "")); } catch { }
