@@ -8,7 +8,7 @@ using Microsoft.Win32;
 
 namespace Calculator
 {
-    enum Kind { Number, Function, Equals }
+    enum Kind { Number, Function, Equals, Memory }
 
     sealed class Theme
     {
@@ -98,11 +98,15 @@ namespace Calculator
                 case Kind.Number:
                     fill = pressed ? Theme.NumPress : hover ? Theme.NumHover : Theme.NumNormal;
                     break;
+                case Kind.Memory:   // text-only until hovered, like the memory strip in Windows 11
+                    fill = !Enabled ? Theme.Back : pressed ? Theme.FnPress : hover ? Theme.FnHover : Theme.Back;
+                    break;
                 default:
                     fill = pressed ? Theme.FnPress : hover ? Theme.FnHover : Theme.FnNormal;
                     break;
             }
             if (pressed && Kind != Kind.Equals) fore = Theme.Dim;
+            if (!Enabled) fore = Blend(Theme.Dim, Theme.Back, 0.45f);
 
             int r = (int)(Math.Min(Width, Height) * 0.11f) + 2;
             var rect = new Rectangle(0, 0, Width - 1, Height - 1);
@@ -110,11 +114,12 @@ namespace Calculator
             using (var br = new SolidBrush(fill))
             {
                 g.FillPath(br, path);
-                if (!Theme.Dark && Kind != Kind.Equals)
+                if (!Theme.Dark && Kind != Kind.Equals && Kind != Kind.Memory)
                     using (var pen = new Pen(Theme.Border)) g.DrawPath(pen, path);
             }
 
             float px = Math.Max(10f, Math.Min(Height * 0.36f, Width * 0.30f));
+            if (Kind == Kind.Memory) px = Math.Max(12f, Height * 0.46f);
             FontStyle style = Kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
             string family = Text == "⌫" ? "Segoe UI Symbol" : FontFamilyName;
             if (Text.Length == 1 && Text[0] >= '' && Text[0] <= '')
@@ -126,6 +131,18 @@ namespace Calculator
                 TextRenderer.DrawText(g, Text, f, ClientRectangle, fore,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
                     TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            hover = pressed = false;
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
+
+        static Color Blend(Color a, Color b, float t)
+        {
+            return Color.FromArgb((int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
         }
 
         static GraphicsPath Round(Rectangle rc, int r)
@@ -147,6 +164,7 @@ namespace Calculator
         public Theme Theme;
         public string FontFamilyName = "Segoe UI";
         string expr = "", value = "0";
+        bool hasMemory;
 
         public DisplayBox()
         {
@@ -160,6 +178,13 @@ namespace Calculator
         {
             expr = expression;
             value = val;
+            Invalidate();
+        }
+
+        public void SetMemory(bool on)
+        {
+            if (hasMemory == on) return;
+            hasMemory = on;
             Invalidate();
         }
 
@@ -177,6 +202,11 @@ namespace Calculator
             using (var f = new Font(FontFamilyName, small, FontStyle.Regular, GraphicsUnit.Pixel))
                 TextRenderer.DrawText(g, expr, f, new Rectangle(pad, Height / 10, avail, (int)(small * 1.5f)),
                     Theme.Dim, flags | TextFormatFlags.Top);
+
+            if (hasMemory)
+                using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
+                    TextRenderer.DrawText(g, "M", f, new Rectangle(Math.Max(8, Width / 7) + 14, Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
+                        Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
 
             float big = Math.Max(14f, Height * 0.42f);
             Font fv = new Font(FontFamilyName, big, FontStyle.Bold, GraphicsUnit.Pixel);
@@ -298,7 +328,7 @@ namespace Calculator
         readonly Panel historyHeader = new Panel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle;
+        CalcButton clearHistoryButton, historyToggle, memClear, memRecall;
         int shownHistoryVersion = -1;
         readonly System.Collections.Generic.List<CalcButton> buttons = new System.Collections.Generic.List<CalcButton>();
         readonly string family;
@@ -332,15 +362,39 @@ namespace Calculator
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 2,
+                RowCount = 3,
                 Padding = new Padding(4, 0, 4, 4)
             };
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 21f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));   // compact memory strip
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 79f));
 
             display.Dock = DockStyle.Fill;
             display.FontFamilyName = family;
             root.Controls.Add(display, 0, 0);
+
+            var memStrip = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = new Padding(0) };
+            memStrip.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            string[] memKeys = { "MC", "MR", "M+", "M−", "MS" };
+            for (int i = 0; i < memKeys.Length; i++)
+            {
+                memStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
+                string key = memKeys[i];
+                var mb = new CalcButton
+                {
+                    Text = key,
+                    Kind = Kind.Memory,
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(2, 0, 2, 2),
+                    FontFamilyName = family
+                };
+                mb.Click += delegate { Press(key); };
+                buttons.Add(mb);
+                memStrip.Controls.Add(mb, i, 0);
+                if (key == "MC") memClear = mb;
+                if (key == "MR") memRecall = mb;
+            }
+            root.Controls.Add(memStrip, 0, 1);
 
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 6, Margin = new Padding(0) };
             for (int c = 0; c < 4; c++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
@@ -366,7 +420,7 @@ namespace Calculator
                     buttons.Add(b);
                     grid.Controls.Add(b, c, r);
                 }
-            root.Controls.Add(grid, 0, 1);
+            root.Controls.Add(grid, 0, 2);
 
             historyToggle = new CalcButton
             {
@@ -529,7 +583,12 @@ namespace Calculator
             base.OnFormClosed(e);
         }
 
-        void Refresh_() { display.SetText(engine.Expression, engine.DisplayText); }
+        void Refresh_()
+        {
+            display.SetText(engine.Expression, engine.DisplayText);
+            display.SetMemory(engine.HasMemory);
+            memClear.Enabled = memRecall.Enabled = engine.HasMemory;
+        }
 
         void Press(string key)
         {
@@ -552,6 +611,11 @@ namespace Calculator
                 case "⌫": engine.Backspace(); break;
                 case "CE": engine.ClearEntry(); break;
                 case "C": engine.Clear(); break;
+                case "MC": engine.MemoryClear(); break;
+                case "MR": engine.MemoryRecall(); break;
+                case "M+": engine.MemoryAdd(); break;
+                case "M−": engine.MemorySubtract(); break;
+                case "MS": engine.MemoryStore(); break;
             }
             Refresh_();
             SyncHistory();
@@ -579,6 +643,11 @@ namespace Calculator
         {
             if (e.KeyCode == Keys.Delete) { Press("CE"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.H) { ToggleHistory(); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.L) { Press("MC"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.R) { Press("MR"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.P) { Press("M+"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.Q) { Press("M−"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.M) { Press("MS"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.C)
             {
                 try { Clipboard.SetText(engine.DisplayText.Replace(" ", "")); } catch { }

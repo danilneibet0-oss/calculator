@@ -210,6 +210,47 @@ namespace Calculator
             Unary("1/(" + Num(x) + ")", 1m / x);
         }
 
+        // ---- Memory (MC, MR, M+, M-, MS) ----
+
+        decimal? memory;
+
+        public bool HasMemory { get { return memory.HasValue; } }
+
+        public void MemoryClear() { memory = null; }
+
+        public void MemoryStore()
+        {
+            if (HasError) return;
+            memory = Current();
+            newEntry = true;
+        }
+
+        public void MemoryAdd() { MemoryChange(1); }
+
+        public void MemorySubtract() { MemoryChange(-1); }
+
+        void MemoryChange(int sign)
+        {
+            if (HasError) return;
+            try { memory = (memory ?? 0m) + sign * Current(); }
+            catch (OverflowException) { SetError("Переполнение"); return; }
+            newEntry = true;
+        }
+
+        public void MemoryRecall()
+        {
+            if (!memory.HasValue) return;
+            if (HasError) Clear();
+            entry = Format(memory.Value);
+            if (op == '\0')
+            {
+                expression = "";
+                lastOp = '\0';
+                afterEquals = false;
+            }
+            newEntry = true;
+        }
+
         void Unary(string text, decimal result)
         {
             expression = (op != '\0' ? Num(left.Value) + " " + Symbol(op) + " " : "") + text;

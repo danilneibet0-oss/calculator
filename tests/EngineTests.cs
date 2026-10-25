@@ -36,6 +36,56 @@ static class EngineTests
         return e.DisplayText;
     }
 
+    static void MemoryTests()
+    {
+        var e = new CalcEngine();
+        Check("memory initially empty", e.HasMemory.ToString(), "False");
+        e.MemoryRecall();
+        Check("recall empty memory does nothing", e.DisplayText, "0");
+
+        e.Digit('5'); e.MemoryStore();
+        Check("MS sets memory", e.HasMemory.ToString(), "True");
+        Check("MS keeps display", e.DisplayText, "5");
+
+        e.Digit('3'); // starts a new number after MS
+        Check("digit after MS starts new number", e.DisplayText, "3");
+        e.MemoryAdd();
+        e.Clear();
+        e.MemoryRecall();
+        Check("M+ adds", e.DisplayText, "8");
+
+        e.Digit('2'); e.MemorySubtract();
+        e.Clear();
+        e.MemoryRecall();
+        Check("M- subtracts", e.DisplayText, "6");
+
+        // recall as the right-hand operand: 10 + MR = 16
+        e.Clear();
+        e.Digit('1'); e.Digit('0'); e.Operator('+'); e.MemoryRecall(); e.Evaluate();
+        Check("MR as operand", e.DisplayText, "16");
+
+        // recall then continue with an operator
+        e.Clear(); e.MemoryRecall(); e.Operator('*'); e.Digit('2'); e.Evaluate();
+        Check("MR then operator", e.DisplayText, "12");
+
+        e.Clear();
+        Check("memory survives C", e.HasMemory.ToString(), "True");
+        e.MemoryClear();
+        Check("MC clears", e.HasMemory.ToString(), "False");
+
+        e.Digit('4'); e.MemoryAdd(); // M+ with empty memory starts from zero
+        e.Clear(); e.MemoryRecall();
+        Check("M+ on empty memory", e.DisplayText, "4");
+
+        e.Clear(); e.Digit('5'); e.Operator('/'); e.Digit('0'); e.Evaluate();
+        e.MemoryStore();
+        e.Clear(); e.MemoryRecall();
+        Check("MS ignored while in error", e.DisplayText, "4");
+        e.Digit('1'); e.Operator('/'); e.Digit('0'); e.Evaluate();
+        e.MemoryRecall();
+        Check("MR recovers from error", e.DisplayText, "4");
+    }
+
     static void HistoryTests()
     {
         var e = new CalcEngine();
@@ -104,6 +154,7 @@ static class EngineTests
         Check("subtract negative", Run("3-5="), "-2");
         Check("ops change", Run("3+*4="), "12");
         HistoryTests();
+        MemoryTests();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }
