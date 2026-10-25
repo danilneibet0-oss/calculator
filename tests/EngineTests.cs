@@ -36,6 +36,30 @@ static class EngineTests
         return e.DisplayText;
     }
 
+    static void SettingsTests()
+    {
+        var s = Settings.Parse(null);
+        Check("settings default bounds", s.HasBounds.ToString(), "False");
+        Check("settings default topmost", s.TopMost.ToString(), "False");
+
+        var src = new Settings { HasBounds = true, Left = -1200, Top = 80, Width = 340, Height = 520, TopMost = true, HistoryOpen = true };
+        var back = Settings.Parse(src.Serialize());
+        Check("settings roundtrip bounds", back.HasBounds + " " + back.Left + " " + back.Top + " " + back.Width + " " + back.Height,
+              "True -1200 80 340 520");
+        Check("settings roundtrip topmost", back.TopMost.ToString(), "True");
+        Check("settings roundtrip history", back.HistoryOpen.ToString(), "True");
+
+        var noBounds = Settings.Parse(new Settings { TopMost = true }.Serialize());
+        Check("settings without bounds", noBounds.HasBounds.ToString(), "False");
+        Check("settings topmost kept", noBounds.TopMost.ToString(), "True");
+
+        Check("settings garbage ignored", Settings.Parse("left=abc\r\nwidth=\r\n???\r\ntopmost=1\r\n").TopMost.ToString(), "True");
+        Check("settings tiny window rejected", Settings.Parse("left=0\ntop=0\nwidth=10\nheight=10\n").HasBounds.ToString(), "False");
+        Check("settings huge window rejected", Settings.Parse("left=0\ntop=0\nwidth=99999\nheight=500\n").HasBounds.ToString(), "False");
+        Check("settings partial bounds rejected", Settings.Parse("left=0\ntop=0\nwidth=300\n").HasBounds.ToString(), "False");
+        Check("settings CRLF", Settings.Parse("left=5\r\ntop=6\r\nwidth=300\r\nheight=400\r\n").Top.ToString(), "6");
+    }
+
     static void MemoryTests()
     {
         var e = new CalcEngine();
@@ -155,6 +179,7 @@ static class EngineTests
         Check("ops change", Run("3+*4="), "12");
         HistoryTests();
         MemoryTests();
+        SettingsTests();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }

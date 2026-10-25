@@ -64,6 +64,8 @@ namespace Calculator
         public Theme Theme;
         public string FontFamilyName = "Segoe UI";
         public static string IconFont = "Segoe MDL2 Assets";
+        /// <summary>Toggle buttons draw in the "on" state (pressed-in, accent text).</summary>
+        public bool Active;
         bool hover, pressed;
 
         public CalcButton()
@@ -107,6 +109,11 @@ namespace Calculator
             }
             if (pressed && Kind != Kind.Equals) fore = Theme.Dim;
             if (!Enabled) fore = Blend(Theme.Dim, Theme.Back, 0.45f);
+            if (Active && Kind == Kind.Function)
+            {
+                fill = Theme.FnPress;
+                fore = Theme.EqNormal;
+            }
 
             int r = (int)(Math.Min(Width, Height) * 0.11f) + 2;
             var rect = new Rectangle(0, 0, Width - 1, Height - 1);
@@ -205,7 +212,7 @@ namespace Calculator
 
             if (hasMemory)
                 using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "M", f, new Rectangle(Math.Max(8, Width / 7) + 14, Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
+                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(98 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
                         Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
 
             float big = Math.Max(14f, Height * 0.42f);
@@ -328,7 +335,9 @@ namespace Calculator
         readonly Panel historyHeader = new Panel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, memClear, memRecall;
+        CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall;
+        readonly Settings settings;
+        readonly ToolTip tips = new ToolTip();
         int shownHistoryVersion = -1;
         readonly System.Collections.Generic.List<CalcButton> buttons = new System.Collections.Generic.List<CalcButton>();
         readonly string family;
@@ -350,10 +359,13 @@ namespace Calculator
             theme = Theme.FromSystem();
 
             Text = "Калькулятор";
+            AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(340, 520);
             MinimumSize = new Size(300, 430);
             StartPosition = FormStartPosition.CenterScreen;
+            settings = Settings.Load();
+            TopMost = settings.TopMost;
             KeyPreview = true;
             DoubleBuffered = true;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -433,6 +445,21 @@ namespace Calculator
             historyToggle.Click += delegate { ToggleHistory(); };
             display.Controls.Add(historyToggle);
             buttons.Add(historyToggle);
+            tips.SetToolTip(historyToggle, "Журнал (Ctrl+H)");
+
+            pinToggle = new CalcButton
+            {
+                Text = "",
+                Kind = Kind.Function,
+                Size = new Size(40, 34),
+                Location = new Point(50, 8),
+                FontFamilyName = family,
+                Active = TopMost
+            };
+            pinToggle.Click += delegate { ToggleTopMost(); };
+            display.Controls.Add(pinToggle);
+            buttons.Add(pinToggle);
+            tips.SetToolTip(pinToggle, "Поверх всех окон (Ctrl+T)");
 
             BuildHistoryPanel();
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
@@ -497,6 +524,58 @@ namespace Calculator
             using (var f = new Font(family, 16f, FontStyle.Regular, GraphicsUnit.Pixel))
                 TextRenderer.DrawText(e.Graphics, "Журнал пуст", f, area, theme.Dim,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+
+        void ToggleTopMost()
+        {
+            TopMost = !TopMost;
+            pinToggle.Active = TopMost;
+            pinToggle.Invalidate();
+            ActiveControl = null;
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            ApplySavedBounds();
+            if (settings.HistoryOpen && !historyPanel.Visible) ToggleHistory();
+        }
+
+        /// <summary>Restores the last window position and size, unless the position is no longer on any screen.</summary>
+        void ApplySavedBounds()
+        {
+            if (!settings.HasBounds) return;
+            float k = DeviceDpi / 96f;
+            int w = Math.Max(MinimumSize.Width, (int)Math.Round(settings.Width * k));
+            int h = Math.Max(MinimumSize.Height, (int)Math.Round(settings.Height * k));
+            var target = new Rectangle(settings.Left, settings.Top, w, h);
+            var titleBar = new Rectangle(target.Left, target.Top, target.Width, Math.Max(1, (int)(40 * k)));
+            foreach (Screen s in Screen.AllScreens)
+            {
+                if (!s.WorkingArea.IntersectsWith(titleBar)) continue;
+                StartPosition = FormStartPosition.Manual;
+                Bounds = target;
+                return;
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            bool normal = WindowState == FormWindowState.Normal;
+            Rectangle b = normal ? Bounds : RestoreBounds;
+            int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0);
+            float k = 96f / DeviceDpi;
+            new Settings
+            {
+                HasBounds = true,
+                Left = b.Left,
+                Top = b.Top,
+                Width = (int)Math.Round(width * k),
+                Height = (int)Math.Round(b.Height * k),
+                TopMost = TopMost,
+                HistoryOpen = historyPanel.Visible
+            }.Save();
         }
 
         void ToggleHistory()
@@ -643,6 +722,7 @@ namespace Calculator
         {
             if (e.KeyCode == Keys.Delete) { Press("CE"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.H) { ToggleHistory(); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.T) { ToggleTopMost(); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.L) { Press("MC"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.R) { Press("MR"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.P) { Press("M+"); e.Handled = true; }
