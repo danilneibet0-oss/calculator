@@ -210,6 +210,52 @@ namespace Calculator
             Unary("1/(" + Num(x) + ")", 1m / x);
         }
 
+        // ---- Clipboard ----
+
+        /// <summary>The shown number without thousands separators, ready for the clipboard. Empty on error.</summary>
+        public string CopyText
+        {
+            get { return HasError ? "" : entry.Replace(".", DecimalSeparator); }
+        }
+
+        /// <summary>Parses pasted text such as "1 234,5", "1,234.56" or "-7". Returns false for anything else.</summary>
+        public static bool TryParseNumber(string text, out decimal value)
+        {
+            value = 0;
+            if (text == null) return false;
+            var sb = new StringBuilder();
+            foreach (char c in text.Trim())
+                if (c != ' ' && c != ' ' && c != ' ' && c != ' ') sb.Append(c);
+            string s = sb.ToString();
+            if (s.Length == 0) return false;
+
+            int dots = s.Split('.').Length - 1, commas = s.Split(',').Length - 1;
+            if (commas > 1 && dots == 0) s = s.Replace(",", "");      // 1,234,567
+            else if (dots > 1 && commas == 0) s = s.Replace(".", ""); // 1.234.567
+            int dec = Math.Max(s.LastIndexOf('.'), s.LastIndexOf(','));
+            if (dec >= 0)
+                s = s.Substring(0, dec).Replace(".", "").Replace(",", "") + "." + s.Substring(dec + 1);
+
+            return decimal.TryParse(s, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>Replaces the number being typed with pasted text. Returns false if the text is not a number.</summary>
+        public bool Paste(string text)
+        {
+            decimal v;
+            if (!TryParseNumber(text, out v)) return false;
+            StartEntry();
+            entry = Format(v);
+            newEntry = false;
+            return true;
+        }
+
+        public void RemoveHistory(HistoryItem item)
+        {
+            if (history.Remove(item)) HistoryVersion++;
+        }
+
         // ---- Memory (MC, MR, M+, M-, MS) ----
 
         decimal? memory;

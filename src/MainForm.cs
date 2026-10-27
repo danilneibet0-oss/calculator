@@ -57,6 +57,34 @@ namespace Calculator
         }
     }
 
+    /// <summary>Colors for context menus so they follow the light/dark theme.</summary>
+    sealed class ThemedColors : ProfessionalColorTable
+    {
+        readonly Color back, border, hot, sep;
+
+        static Color C(int rgb) { return Color.FromArgb((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255); }
+
+        public ThemedColors(Theme t)
+        {
+            back = t.Dark ? C(0x2C2C2C) : C(0xFCFCFC);
+            border = t.Dark ? C(0x454545) : C(0xD0D0D0);
+            hot = t.Dark ? C(0x3D3D3D) : C(0xEAEAEA);
+            sep = t.Dark ? C(0x454545) : C(0xE0E0E0);
+        }
+
+        public override Color ToolStripDropDownBackground { get { return back; } }
+        public override Color ImageMarginGradientBegin { get { return back; } }
+        public override Color ImageMarginGradientMiddle { get { return back; } }
+        public override Color ImageMarginGradientEnd { get { return back; } }
+        public override Color MenuBorder { get { return border; } }
+        public override Color MenuItemBorder { get { return hot; } }
+        public override Color MenuItemSelected { get { return hot; } }
+        public override Color MenuItemSelectedGradientBegin { get { return hot; } }
+        public override Color MenuItemSelectedGradientEnd { get { return hot; } }
+        public override Color SeparatorDark { get { return sep; } }
+        public override Color SeparatorLight { get { return sep; } }
+    }
+
     /// <summary>Flat rounded button that never takes keyboard focus.</summary>
     sealed class CalcButton : Control
     {
@@ -338,6 +366,9 @@ namespace Calculator
         CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall;
         readonly Settings settings;
         readonly ToolTip tips = new ToolTip();
+        readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
+        readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
+        HistoryItem historyMenuTarget;
         int shownHistoryVersion = -1;
         readonly System.Collections.Generic.List<CalcButton> buttons = new System.Collections.Generic.List<CalcButton>();
         readonly string family;
@@ -462,6 +493,7 @@ namespace Calculator
             tips.SetToolTip(pinToggle, "Поверх всех окон (Ctrl+T)");
 
             BuildHistoryPanel();
+            BuildMenus();
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
             Controls.Add(historyPanel);
 
@@ -524,6 +556,77 @@ namespace Calculator
             using (var f = new Font(family, 16f, FontStyle.Regular, GraphicsUnit.Pixel))
                 TextRenderer.DrawText(e.Graphics, "Журнал пуст", f, area, theme.Dim,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+
+        void BuildMenus()
+        {
+            displayMenu.ShowImageMargin = false;
+            var copy = new ToolStripMenuItem("Копировать") { ShortcutKeyDisplayString = "Ctrl+C" };
+            var paste = new ToolStripMenuItem("Вставить") { ShortcutKeyDisplayString = "Ctrl+V" };
+            copy.Click += delegate { CopyDisplay(); };
+            paste.Click += delegate { PasteFromClipboard(); };
+            displayMenu.Items.Add(copy);
+            displayMenu.Items.Add(paste);
+            displayMenu.Opening += delegate
+            {
+                copy.Enabled = !engine.HasError;
+                paste.Enabled = ClipboardHasNumber();
+            };
+            display.ContextMenuStrip = displayMenu;
+
+            historyMenu.ShowImageMargin = false;
+            var copyResult = new ToolStripMenuItem("Копировать результат");
+            var copyExample = new ToolStripMenuItem("Копировать пример целиком");
+            var remove = new ToolStripMenuItem("Удалить запись");
+            copyResult.Click += delegate { SetClipboard(historyMenuTarget.Result.Replace(".", CalcEngine.DecimalSeparator)); };
+            copyExample.Click += delegate { SetClipboard(historyMenuTarget.Expression + " " + historyMenuTarget.ResultText); };
+            remove.Click += delegate { engine.RemoveHistory(historyMenuTarget); SyncHistory(); };
+            historyMenu.Items.Add(copyResult);
+            historyMenu.Items.Add(copyExample);
+            historyMenu.Items.Add(new ToolStripSeparator());
+            historyMenu.Items.Add(remove);
+            historyMenu.Opening += delegate(object s, System.ComponentModel.CancelEventArgs e)
+            {
+                int idx = historyList.IndexFromPoint(historyList.PointToClient(Cursor.Position));
+                if (idx < 0) { e.Cancel = true; return; }
+                historyMenuTarget = (HistoryItem)historyList.Items[idx];
+            };
+            historyList.ContextMenuStrip = historyMenu;
+        }
+
+        void ApplyMenuTheme(ContextMenuStrip menu)
+        {
+            menu.Renderer = new ToolStripProfessionalRenderer(new ThemedColors(theme)) { RoundedEdges = false };
+            menu.Font = new Font(family, 14f, FontStyle.Regular, GraphicsUnit.Pixel);
+            menu.BackColor = theme.Dark ? Color.FromArgb(0x2C, 0x2C, 0x2C) : Color.FromArgb(0xFC, 0xFC, 0xFC);
+            menu.ForeColor = theme.Text;
+            foreach (ToolStripItem item in menu.Items) item.ForeColor = theme.Text;
+        }
+
+        static void SetClipboard(string text)
+        {
+            try { if (!string.IsNullOrEmpty(text)) Clipboard.SetText(text); } catch { }
+        }
+
+        void CopyDisplay() { SetClipboard(engine.CopyText); }
+
+        static bool ClipboardHasNumber()
+        {
+            try
+            {
+                decimal v;
+                return Clipboard.ContainsText() && CalcEngine.TryParseNumber(Clipboard.GetText(), out v);
+            }
+            catch { return false; }
+        }
+
+        void PasteFromClipboard()
+        {
+            try
+            {
+                if (Clipboard.ContainsText() && engine.Paste(Clipboard.GetText())) Refresh_();
+            }
+            catch { }
         }
 
         void ToggleTopMost()
@@ -638,6 +741,8 @@ namespace Calculator
             historyTitle.ForeColor = theme.Text;
             historyList.Theme = theme;
             historyList.BackColor = theme.Back;
+            ApplyMenuTheme(displayMenu);
+            ApplyMenuTheme(historyMenu);
             if (historyList.IsHandleCreated) ApplyListTheme();
             historyList.Invalidate();
             if (IsHandleCreated) SetDarkTitle();
@@ -728,11 +833,8 @@ namespace Calculator
             else if (e.Control && e.KeyCode == Keys.P) { Press("M+"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.Q) { Press("M−"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.M) { Press("MS"); e.Handled = true; }
-            else if (e.Control && e.KeyCode == Keys.C)
-            {
-                try { Clipboard.SetText(engine.DisplayText.Replace(" ", "")); } catch { }
-                e.Handled = true;
-            }
+            else if (e.Control && e.KeyCode == Keys.C) { CopyDisplay(); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.V) { PasteFromClipboard(); e.Handled = true; }
             base.OnKeyDown(e);
         }
     }

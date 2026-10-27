@@ -36,6 +36,71 @@ static class EngineTests
         return e.DisplayText;
     }
 
+    static string Parsed(string text)
+    {
+        decimal v;
+        return CalcEngine.TryParseNumber(text, out v) ? CalcEngine.Format(v) : "none";
+    }
+
+    static void ClipboardTests()
+    {
+        Check("parse plain", Parsed("123"), "123");
+        Check("parse spaces", Parsed("  1 234,5  "), "1234.5");
+        Check("parse nbsp", Parsed("1 234"), "1234");
+        Check("parse comma decimal", Parsed("3,14"), "3.14");
+        Check("parse dot decimal", Parsed("3.14"), "3.14");
+        Check("parse us thousands", Parsed("1,234.56"), "1234.56");
+        Check("parse eu thousands", Parsed("1.234,56"), "1234.56");
+        Check("parse many commas", Parsed("1,234,567"), "1234567");
+        Check("parse many dots", Parsed("1.234.567"), "1234567");
+        Check("parse negative", Parsed("-7"), "-7");
+        Check("parse plus", Parsed("+7"), "7");
+        Check("parse leading dot", Parsed(".5"), "0.5");
+        Check("parse text rejected", Parsed("abc"), "none");
+        Check("parse mixed rejected", Parsed("12abc"), "none");
+        Check("parse exponent rejected", Parsed("1e5"), "none");
+        Check("parse empty rejected", Parsed("   "), "none");
+        Check("parse null rejected", Parsed(null), "none");
+        Check("parse lone separator rejected", Parsed(","), "none");
+        Check("parse too big rejected", Parsed(new string('9', 40)), "none");
+
+        var e = new CalcEngine();
+        Check("paste ok", e.Paste("1 234,5").ToString(), "True");
+        Check("paste shows number", e.DisplayText, "1 234,5");
+        e.Digit('6');
+        Check("digit appends to pasted number", e.DisplayText, "1 234,56");
+        Check("paste bad text", e.Paste("hello").ToString(), "False");
+        Check("bad paste keeps display", e.DisplayText, "1 234,56");
+
+        e.Clear(); e.Digit('5'); e.Operator('+'); e.Paste("3"); e.Evaluate();
+        Check("paste as operand", e.DisplayText, "8");
+        e.Paste("9");
+        Check("paste after equals starts new calc", e.DisplayText, "9");
+        Check("paste after equals clears expression", e.Expression, "");
+
+        e.Clear(); e.Digit('5'); e.Operator('/'); e.Digit('0'); e.Evaluate();
+        Check("copy text empty on error", e.CopyText, "");
+        Check("paste recovers from error", e.Paste("4").ToString(), "True");
+        Check("paste after error", e.DisplayText, "4");
+
+        e.Clear(); e.Digit('1'); e.Digit('2'); e.Digit('3'); e.Digit('4'); e.Decimal(); e.Digit('5');
+        Check("copy text ungrouped", e.CopyText, "1234,5");
+        e.Negate();
+        Check("copy text negative", e.CopyText, "-1234,5");
+
+        e = new CalcEngine();
+        e.Digit('2'); e.Operator('+'); e.Digit('3'); e.Evaluate();
+        e.Digit('4'); e.Operator('*'); e.Digit('5'); e.Evaluate();
+        Check("history before removal", e.History.Count.ToString(), "2");
+        HistoryItem older = e.History[1];
+        e.RemoveHistory(older);
+        Check("history item removed", e.History.Count.ToString(), "1");
+        Check("remaining history item", e.History[0].Result, "20");
+        int v = e.HistoryVersion;
+        e.RemoveHistory(older);
+        Check("removing twice is harmless", e.HistoryVersion.ToString(), v.ToString());
+    }
+
     static void SettingsTests()
     {
         var s = Settings.Parse(null);
@@ -180,6 +245,7 @@ static class EngineTests
         HistoryTests();
         MemoryTests();
         SettingsTests();
+        ClipboardTests();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }
