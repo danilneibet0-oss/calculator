@@ -199,6 +199,7 @@ static class ExprTests
         Factorials();
         Percent();
         Modulo();
-return failed;
+        Roots();
+        return failed;
     }
 }
