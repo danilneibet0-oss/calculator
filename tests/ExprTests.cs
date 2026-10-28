@@ -159,6 +159,17 @@ static class ExprTests
         Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
     }
 
+    static void OverflowChecks()
+    {
+        string big = new string('9', 308);
+        Eq("largest literals are fine", E(new string('9', 300)), 1e300);
+        Err("literal too large", new string('9', 400), Expr.Overflow);
+        Err("product overflows", big + "*" + big, Expr.Overflow);
+        Err("sum overflows", big + "+" + big, Expr.Overflow);
+        Err("difference overflows", "-" + big + "-" + big, Expr.Overflow);
+        Err("implicit product overflows", big + "(" + big + ")", Expr.Overflow);
+    }
+
     static void ImplicitMultiplication()
     {
         Eq("number and pi", E("2π"), 2 * Math.PI);
@@ -313,6 +324,7 @@ static class ExprTests
         InverseTrig();
         Logarithms();
         ImplicitMultiplication();
+        OverflowChecks();
         return failed;
     }
 }

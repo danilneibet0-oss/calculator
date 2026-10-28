@@ -114,8 +114,8 @@ namespace Calculator
                 double v = ParseTerm();
                 while (true)
                 {
-                    if (Match('+')) v += ParseTerm();
-                    else if (Match('-') || Match('−')) v -= ParseTerm();
+                    if (Match('+')) v = Check(v + ParseTerm());
+                    else if (Match('-') || Match('−')) v = Check(v - ParseTerm());
                     else return v;
                 }
             }
@@ -128,10 +128,10 @@ namespace Calculator
                     SkipSpaces();
                     // A space between operands ("1 2") is an error; only glued operands multiply.
                     bool spaced = pos > 0 && char.IsWhiteSpace(s[pos - 1]);
-                    if (Match('*') || Match('×')) v *= ParseUnary();
+                    if (Match('*') || Match('×')) v = Check(v * ParseUnary());
                     else if (Match('/') || Match('÷')) v = Divide(v, ParseUnary());
                     else if (MatchWord("mod")) v = Modulo(v, ParseUnary());
-                    else if (!spaced && StartsOperand()) v *= ParseUnary();   // 2π, 3(4+5), 2sin(30)
+                    else if (!spaced && StartsOperand()) v = Check(v * ParseUnary());   // 2π, 3(4+5), 2sin(30)
                     else return v;
                 }
             }
@@ -316,7 +316,14 @@ namespace Calculator
                     pos++;
                 }
                 if (!seenDigit) throw new ExprException(SyntaxError);
-                return double.Parse(s.Substring(start, pos - start).Replace(',', '.'), CultureInfo.InvariantCulture);
+                try
+                {
+                    return Check(double.Parse(s.Substring(start, pos - start).Replace(',', '.'), CultureInfo.InvariantCulture));
+                }
+                catch (OverflowException)   // .NET Framework throws where newer runtimes return infinity
+                {
+                    throw new ExprException(Overflow);
+                }
             }
 
             /// <summary>Consumes c (after optional spaces) if it is next.</summary>
