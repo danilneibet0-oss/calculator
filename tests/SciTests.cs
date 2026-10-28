@@ -43,6 +43,7 @@ static class SciTests
                 case "/": e.Operator("÷"); break;
                 case "^": e.Operator("^"); break;
                 case "mod": e.Operator(" mod "); break;
+                case "neg": e.Negate(); break;
                 case "bs": e.Backspace(); break;
                 case "C": e.Clear(); break;
                 default: throw new ArgumentException("unknown key " + key);
@@ -72,6 +73,25 @@ static class SciTests
         Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
         Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
+    static void Negation()
+    {
+        Eq("negate", K("5 neg").Buffer, "−5");
+        Eq("negate twice", K("5 neg neg").Buffer, "5");
+        Eq("after plus", K("2 + 3 neg").Buffer, "2+−3");
+        Eq("after minus", K("2 - 3 neg").Buffer, "2−−3");
+        Eq("after minus twice", K("2 - 3 neg neg").Buffer, "2−3");
+        Eq("after open paren", K("( 4 neg").Buffer, "(−4");
+        Eq("after times with decimals", K("2 * 3 . 5 neg").Buffer, "2×−3.5");
+        Eq("after mod", K("7 mod 3 neg").Buffer, "7 mod −3");
+        Eq("on empty", K("neg").Buffer, "");
+        Eq("after operator", K("5 + neg").Buffer, "5+");
+        Eq("only the last number", K("1 2 + 3 4 neg").Buffer, "12+−34");
+        Eq("result is negated", K("2 + 3 = neg").Buffer, "−5");
+        Eq("negative result is flipped back", K("2 - 5 = neg").Buffer, "3");
+        Eq("negated number evaluates", K("2 + 3 neg =").DisplayText, "-1");
+        Eq("double minus evaluates", K("2 - 3 neg =").DisplayText, "5");
     }
 
     static void Backspace()
@@ -240,6 +260,7 @@ static class SciTests
         Errors();
         AfterEquals();
         Backspace();
+        Negation();
         return failed;
     }
 }

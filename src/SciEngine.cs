@@ -228,6 +228,24 @@ namespace Calculator
             return formatted.Replace('-', '−');
         }
 
+        /// <summary>True if buffer[i] is a minus used as a sign: at the start, after "(" or after another operator.</summary>
+        bool IsSignAt(int i)
+        {
+            if (i < 0 || buffer[i] != '−') return false;
+            if (i == 0) return true;
+            return "(+−×÷^ ".IndexOf(buffer[i - 1]) >= 0;
+        }
+
+        /// <summary>±: flips the sign of the number being typed ("2×3" becomes "2×−3").</summary>
+        public void Negate()
+        {
+            if (!Continue()) return;
+            string number = TrailingNumber();
+            if (number.Length == 0) return;
+            int start = buffer.Length - number.Length;
+            buffer = IsSignAt(start - 1) ? buffer.Remove(start - 1, 1) : buffer.Insert(start, "−");
+        }
+
         // Longest names first: "asin(" must be tried before "sin(".
         static readonly string[] Tokens =
             { " mod ", "asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "exp(", "abs(", "ln(", "√(", "∛(" };
