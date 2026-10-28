@@ -23,6 +23,14 @@ static class SciTests
             switch (key)
             {
                 case ".": e.Decimal(); break;
+                case "sin": case "cos": case "tan": case "asin": case "acos": case "atan":
+                case "ln": case "log": case "exp": case "abs":
+                    e.Function(key); break;
+                case "sqrt": e.Function("√"); break;
+                case "cbrt": e.Function("∛"); break;
+                case "sqr": e.Square(); break;
+                case "inv": e.Reciprocal(); break;
+                case "ten": e.TenPower(); break;
                 case "pi": e.Constant("π"); break;
                 case "e": e.Constant("e"); break;
                 case "!": e.Factorial(); break;
@@ -62,6 +70,28 @@ static class SciTests
         Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
         Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
+    static void Functions()
+    {
+        Eq("sin opens a call", K("sin").Buffer, "sin(");
+        Eq("argument and close", K("sin 3 0 )").Buffer, "sin(30)");
+        Eq("sqrt sign", K("sqrt").Buffer, "√(");
+        Eq("cbrt sign", K("cbrt").Buffer, "∛(");
+        Eq("number before function", K("2 sin").Buffer, "2sin(");
+        Eq("nested calls", K("ln exp 5 ) )").Buffer, "ln(exp(5))");
+        Eq("every name", K("asin acos atan ln log exp abs").Buffer, "asin(acos(atan(ln(log(exp(abs(");
+        Eq("square", K("5 sqr").Buffer, "5^2");
+        Eq("square of a group", K("( 2 + 3 ) sqr").Buffer, "(2+3)^2");
+        Eq("square needs an operand", K("sqr").Buffer, "");
+        Eq("reciprocal wraps the number", K("4 inv").Buffer, "1÷(4)");
+        Eq("reciprocal after operator", K("2 + 4 inv").Buffer, "2+1÷(4)");
+        Eq("reciprocal on empty", K("inv").Buffer, "1÷(");
+        Eq("reciprocal of a group is ignored", K("( 1 ) inv").Buffer, "(1)");
+        Eq("ten power", K("ten").Buffer, "10^(");
+        Eq("ten power after number multiplies", K("2 ten").Buffer, "2×10^(");
+        try { new SciEngine().Function("nope"); failed++; Console.WriteLine("FAIL unknown function accepted"); }
+        catch (ArgumentException) { }
     }
 
     static void ConstantsAndFactorial()
@@ -117,6 +147,7 @@ static class SciTests
         Operators();
         Parentheses();
         ConstantsAndFactorial();
-    return failed;
+        Functions();
+return failed;
     }
 }

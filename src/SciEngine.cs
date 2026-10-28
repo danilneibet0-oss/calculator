@@ -94,6 +94,38 @@ namespace Calculator
             if (EndsWithOperand()) buffer += "!";
         }
 
+        static readonly string[] FunctionNames =
+            { "sin", "cos", "tan", "asin", "acos", "atan", "ln", "log", "exp", "abs", "√", "∛" };
+
+        /// <summary>Starts a function call such as "sin(".</summary>
+        public void Function(string name)
+        {
+            if (Array.IndexOf(FunctionNames, name) < 0) throw new ArgumentException("unknown function " + name);
+            buffer += name + "(";
+        }
+
+        /// <summary>x²: raises what was just entered to the power 2.</summary>
+        public void Square()
+        {
+            if (EndsWithOperand()) buffer += "^2";
+        }
+
+        /// <summary>1/x: wraps the number being typed, or opens "1÷(" on an empty spot.</summary>
+        public void Reciprocal()
+        {
+            string number = TrailingNumber();
+            if (number.Length > 0)
+                buffer = buffer.Substring(0, buffer.Length - number.Length) + "1÷(" + number + ")";
+            else if (!EndsWithOperand())
+                buffer += "1÷(";
+        }
+
+        /// <summary>10ˣ: opens "10^(", multiplying with a number that was just entered.</summary>
+        public void TenPower()
+        {
+            buffer += EndsWithOperand() ? "×10^(" : "10^(";
+        }
+
         /// <summary>Number of "(" still waiting for their ")".</summary>
         int OpenCount()
         {
