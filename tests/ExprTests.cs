@@ -119,6 +119,18 @@ static class ExprTests
         Err("huge power", "10^400", Expr.Overflow);
     }
 
+    static void Constants()
+    {
+        Eq("pi symbol", E("π"), Math.PI);
+        Eq("pi word", E("pi"), Math.PI);
+        Eq("e", E("e"), Math.E);
+        Eq("upper case", E("PI"), Math.PI);
+        Eq("circle length", E("π*2"), 2 * Math.PI);
+        Eq("e to the one", E("e^1"), Math.E);
+        Err("unknown word", "x", Expr.SyntaxError);
+        Err("unknown longer word", "foo", Expr.SyntaxError);
+    }
+
     public static int Run()
     {
         failed = 0;
@@ -129,6 +141,7 @@ static class ExprTests
         Parentheses();
         UnarySigns();
         Powers();
+        Constants();
         return failed;
     }
 }

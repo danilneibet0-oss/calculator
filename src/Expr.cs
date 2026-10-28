@@ -114,6 +114,13 @@ namespace Calculator
                     if (!Match(')')) throw new ExprException(SyntaxError);
                     return inner;
                 }
+                if (Match('π')) return Math.PI;
+                if (pos < s.Length && IsAsciiLetter(s[pos]))
+                {
+                    string word = ReadWord();
+                    if (word == "pi") return Math.PI;
+                    if (word == "e") return Math.E;
+                }
                 throw new ExprException(SyntaxError);
             }
 
@@ -139,6 +146,18 @@ namespace Calculator
                 SkipSpaces();
                 if (pos < s.Length && s[pos] == c) { pos++; return true; }
                 return false;
+            }
+
+            static bool IsAsciiLetter(char c)
+            {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            }
+
+            string ReadWord()
+            {
+                int start = pos;
+                while (pos < s.Length && IsAsciiLetter(s[pos])) pos++;
+                return s.Substring(start, pos - start).ToLowerInvariant();
             }
 
             void SkipSpaces()
