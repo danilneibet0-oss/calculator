@@ -159,6 +159,24 @@ static class ExprTests
         Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
     }
 
+    static void ImplicitMultiplication()
+    {
+        Eq("number and pi", E("2π"), 2 * Math.PI);
+        Eq("number and group", E("2(3+4)"), 14);
+        Eq("two groups", E("(1+2)(3+4)"), 21);
+        Eq("number and function", E("2sin(30)"), 1);
+        Eq("number and e", E("3e"), 3 * Math.E);
+        Eq("number and root sign", E("2√9"), 6);
+        Eq("pi squared", E("ππ"), Math.PI * Math.PI);
+        Eq("power then group", E("2^2(3)"), 12);
+        Eq("group then power", E("2(3)^2"), 18);
+        Eq("factorial then group", E("5!(2)"), 240);
+        Eq("three groups", E("(2)(3)(4)"), 24);
+        Err("space blocks it", "π π", Expr.SyntaxError);
+        Err("space before group", "2 (3)", Expr.SyntaxError);
+        Err("glued unknown word", "2modx", Expr.SyntaxError);
+    }
+
     static void Logarithms()
     {
         Eq("ln e", E("ln(e)"), 1);
@@ -294,6 +312,7 @@ static class ExprTests
         TrigRadiansAndGradians();
         InverseTrig();
         Logarithms();
+        ImplicitMultiplication();
         return failed;
     }
 }

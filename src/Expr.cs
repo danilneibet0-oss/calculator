@@ -125,11 +125,24 @@ namespace Calculator
                 double v = ParseUnary();
                 while (true)
                 {
+                    SkipSpaces();
+                    // A space between operands ("1 2") is an error; only glued operands multiply.
+                    bool spaced = pos > 0 && char.IsWhiteSpace(s[pos - 1]);
                     if (Match('*') || Match('×')) v *= ParseUnary();
                     else if (Match('/') || Match('÷')) v = Divide(v, ParseUnary());
                     else if (MatchWord("mod")) v = Modulo(v, ParseUnary());
+                    else if (!spaced && StartsOperand()) v *= ParseUnary();   // 2π, 3(4+5), 2sin(30)
                     else return v;
                 }
+            }
+
+            /// <summary>True if an operand begins here, so that "2π" means 2 × π.</summary>
+            bool StartsOperand()
+            {
+                if (pos >= s.Length) return false;
+                char c = s[pos];
+                if (char.IsDigit(c) || c == '.' || c == ',' || c == '(' || c == 'π' || c == '√' || c == '∛') return true;
+                return IsAsciiLetter(c);
             }
 
             double ParseUnary()
