@@ -73,6 +73,29 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void AfterEquals()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        Eq("digit starts a new expression", K("2 + 3 = 7").DisplayText, "7");
+        Eq("digit clears the expression line", K("2 + 3 = 7").Expression, "");
+        Eq("decimal point starts a new expression", K("2 + 3 = .").Buffer, "0.");
+        Eq("function starts a new expression", K("2 + 3 = sin").Buffer, "sin(");
+        Eq("constant starts a new expression", K("2 + 3 = pi").Buffer, "π");
+        Eq("open paren starts a new expression", K("2 + 3 = (").Buffer, "(");
+        Eq("operator continues from the result", K("2 + 3 = * 4 =").DisplayText, "20");
+        Eq("operator clears the expression line", K("2 + 3 = *").Expression, "");
+        Eq("operator keeps the result in the buffer", K("2 + 3 = *").Buffer, "5×");
+        Eq("factorial continues", K("2 + 1 = !").Buffer, "3!");
+        Eq("square continues", K("2 + 3 = sqr =").DisplayText, "25");
+        Eq("reciprocal continues", K("4 = inv =").DisplayText, "0,25");
+        Eq("ten power continues", K("2 = ten 2 ) =").DisplayText, "200");
+        Eq("exponent result continues", K("1 2 3 4 5 6 7 * 1 0 0 0 0 0 0 0 0 0 0 0 = * 2 =").DisplayText, "2,469134e+17");
+        Eq("negative result continues", K("3 - 5 = * 2 =").DisplayText, "-4");
+        Eq("operators are ignored while an error is shown", K("5 / 0 = +").Buffer, "5÷0");
+        Eq("digit after an error starts again", K("5 / 0 = 8").DisplayText, "8");
+        Eq("close paren after a result does nothing", K("2 + 3 = )").Buffer, "5");
+    }
+
     static void Errors()
     {
         Eq("divide by zero", K("5 / 0 =").DisplayText, "Деление на ноль невозможно");
@@ -193,6 +216,7 @@ static class SciTests
         Functions();
         Evaluation();
         Errors();
+        AfterEquals();
         return failed;
     }
 }

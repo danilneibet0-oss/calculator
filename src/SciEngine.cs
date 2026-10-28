@@ -43,8 +43,28 @@ namespace Calculator
             return buffer.Substring(i);
         }
 
+        /// <summary>Call before typing something that starts a new expression (digit, constant, function, "(").</summary>
+        void Begin()
+        {
+            if (afterEquals || HasError) Clear();
+        }
+
+        /// <summary>Call before typing something that continues from the shown result (operator, "!", "x²").
+        /// Returns false while an error is shown.</summary>
+        bool Continue()
+        {
+            if (HasError) return false;
+            if (afterEquals)
+            {
+                afterEquals = false;
+                expression = "";
+            }
+            return true;
+        }
+
         public void Digit(char d)
         {
+            Begin();
             string number = TrailingNumber();
             if (number == "0") buffer = buffer.Substring(0, buffer.Length - 1);   // "0" then "5" is "5"
             else if (number.Replace(".", "").Length >= MaxDigits) return;
@@ -53,6 +73,7 @@ namespace Calculator
 
         public void Decimal()
         {
+            Begin();
             string number = TrailingNumber();
             if (number.IndexOf('.') >= 0) return;
             buffer += number.Length == 0 ? "0." : ".";
@@ -77,6 +98,7 @@ namespace Calculator
         /// <summary>Appends one of + − × ÷ ^ or " mod ". A second operator in a row replaces the first.</summary>
         public void Operator(string op)
         {
+            if (!Continue()) return;
             if (buffer.Length == 0)
             {
                 buffer = op == "−" ? "−" : "0" + op;
@@ -105,12 +127,13 @@ namespace Calculator
         public void Constant(string name)
         {
             if (name != "π" && name != "e") throw new ArgumentException("unknown constant " + name);
+            Begin();
             buffer += name;
         }
 
         public void Factorial()
         {
-            if (EndsWithOperand()) buffer += "!";
+            if (Continue() && EndsWithOperand()) buffer += "!";
         }
 
         static readonly string[] FunctionNames =
@@ -120,18 +143,20 @@ namespace Calculator
         public void Function(string name)
         {
             if (Array.IndexOf(FunctionNames, name) < 0) throw new ArgumentException("unknown function " + name);
+            Begin();
             buffer += name + "(";
         }
 
         /// <summary>x²: raises what was just entered to the power 2.</summary>
         public void Square()
         {
-            if (EndsWithOperand()) buffer += "^2";
+            if (Continue() && EndsWithOperand()) buffer += "^2";
         }
 
         /// <summary>1/x: wraps the number being typed, or opens "1÷(" on an empty spot.</summary>
         public void Reciprocal()
         {
+            if (!Continue()) return;
             string number = TrailingNumber();
             if (number.Length > 0)
                 buffer = buffer.Substring(0, buffer.Length - number.Length) + "1÷(" + number + ")";
@@ -142,6 +167,7 @@ namespace Calculator
         /// <summary>10ˣ: opens "10^(", multiplying with a number that was just entered.</summary>
         public void TenPower()
         {
+            if (!Continue()) return;
             buffer += EndsWithOperand() ? "×10^(" : "10^(";
         }
 
@@ -159,13 +185,14 @@ namespace Calculator
 
         public void OpenParen()
         {
+            Begin();
             buffer += "(";
         }
 
         /// <summary>Closes a group, but only if there is one open and it has something inside.</summary>
         public void CloseParen()
         {
-            if (OpenCount() <= 0) return;
+            if (!Continue() || OpenCount() <= 0) return;
             if (buffer.EndsWith("(", StringComparison.Ordinal) || TrailingOperator() != null || EndsWithSign()) return;
             buffer += ")";
         }
