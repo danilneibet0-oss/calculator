@@ -131,6 +131,18 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static void Modulo()
+    {
+        Eq("basic", E("10 mod 3"), 1);
+        Eq("no spaces", E("10mod4"), 2);
+        Eq("upper case", E("7 MOD 2"), 1);
+        Eq("binds like multiply", E("2+7 mod 4"), 5);
+        Eq("sign of dividend", E("-7 mod 3"), -1);
+        Eq("decimals", E("5.5 mod 2"), 1.5);
+        Err("by zero", "5 mod 0", Expr.DivideByZero);
+        Err("missing operand", "5 mod", Expr.SyntaxError);
+    }
+
     static void Percent()
     {
         Eq("half", E("50%"), 0.5);
@@ -168,6 +180,7 @@ static class ExprTests
         Constants();
         Factorials();
         Percent();
-    return failed;
+        Modulo();
+return failed;
     }
 }

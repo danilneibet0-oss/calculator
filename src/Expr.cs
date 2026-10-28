@@ -40,6 +40,13 @@ namespace Calculator
             return v;
         }
 
+        /// <summary>Remainder with the sign of the dividend, like the C# % operator.</summary>
+        static double Modulo(double a, double b)
+        {
+            if (b == 0) throw new ExprException(DivideByZero);
+            return a % b;
+        }
+
         static double Factorial(double v)
         {
             if (v < 0 || v != Math.Floor(v)) throw new ExprException(Invalid);
@@ -94,6 +101,7 @@ namespace Calculator
                 {
                     if (Match('*') || Match('×')) v *= ParseUnary();
                     else if (Match('/') || Match('÷')) v = Divide(v, ParseUnary());
+                    else if (MatchWord("mod")) v = Modulo(v, ParseUnary());
                     else return v;
                 }
             }
@@ -166,6 +174,18 @@ namespace Calculator
                 SkipSpaces();
                 if (pos < s.Length && s[pos] == c) { pos++; return true; }
                 return false;
+            }
+
+            /// <summary>Consumes a whole word (not a prefix of a longer one) if it is next.</summary>
+            bool MatchWord(string word)
+            {
+                SkipSpaces();
+                int end = pos + word.Length;
+                if (end > s.Length) return false;
+                if (string.Compare(s, pos, word, 0, word.Length, StringComparison.OrdinalIgnoreCase) != 0) return false;
+                if (end < s.Length && IsAsciiLetter(s[end])) return false;
+                pos = end;
+                return true;
             }
 
             static bool IsAsciiLetter(char c)
