@@ -131,6 +131,15 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static void Percent()
+    {
+        Eq("half", E("50%"), 0.5);
+        Eq("percent of a number", E("200*10%"), 20);
+        Eq("twice", E("50%%"), 0.005);
+        Eq("of a group", E("(10+10)%"), 0.2);
+        Eq("added", E("200+10%"), 200.1);
+    }
+
     static void Factorials()
     {
         Eq("three", E("3!"), 6);
@@ -158,6 +167,7 @@ static class ExprTests
         Powers();
         Constants();
         Factorials();
-        return failed;
+        Percent();
+    return failed;
     }
 }

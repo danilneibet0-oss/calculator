@@ -119,6 +119,7 @@ namespace Calculator
                 while (true)
                 {
                     if (Match('!')) v = Factorial(v);
+                    else if (Match('%')) v /= 100;
                     else return v;
                 }
             }
