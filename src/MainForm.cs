@@ -367,6 +367,9 @@ namespace Calculator
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
         CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall;
+        TableLayoutPanel sciPanel;
+        readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
+            new System.Collections.Generic.Dictionary<string, CalcButton>();
         readonly Settings settings;
         readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
@@ -386,6 +389,48 @@ namespace Calculator
             { "1", "2", "3", "+" },
             { "±", "0", ",", "=" }
         };
+
+        static readonly string[,] SciLayout =
+        {
+            { "2nd", "π", "e", "(", ")" },
+            { "sin", "cos", "tan", "n!", "xʸ" },
+            { "ln", "log", "|x|", "∛x", "DEG" }
+        };
+
+        /// <summary>The extra keys of scientific mode, shown above the keypad.</summary>
+        TableLayoutPanel BuildSciPanel()
+        {
+            int rows = SciLayout.GetLength(0), cols = SciLayout.GetLength(1);
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = cols,
+                RowCount = rows,
+                Margin = new Padding(0),
+                Visible = false
+            };
+            for (int c = 0; c < cols; c++) panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / cols));
+            for (int r = 0; r < rows; r++) panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / rows));
+
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                {
+                    string key = SciLayout[r, c];
+                    var b = new CalcButton
+                    {
+                        Text = key,
+                        Kind = Kind.Function,
+                        Dock = DockStyle.Fill,
+                        Margin = new Padding(2),
+                        FontFamilyName = family
+                    };
+                    b.Click += delegate { Press(key); };
+                    buttons.Add(b);
+                    sciButtons[key] = b;
+                    panel.Controls.Add(b, c, r);
+                }
+            return panel;
+        }
 
         public MainForm()
         {
@@ -408,11 +453,12 @@ namespace Calculator
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 3,
+                RowCount = 4,
                 Padding = new Padding(4, 0, 4, 4)
             };
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 21f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));   // compact memory strip
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0f));    // function panel, grows in scientific mode
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 79f));
 
             display.Dock = DockStyle.Fill;
@@ -442,6 +488,9 @@ namespace Calculator
             }
             root.Controls.Add(memStrip, 0, 1);
 
+            sciPanel = BuildSciPanel();
+            root.Controls.Add(sciPanel, 0, 2);
+
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 6, Margin = new Padding(0) };
             for (int c = 0; c < 4; c++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
             for (int r = 0; r < 6; r++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 6f));
@@ -466,7 +515,7 @@ namespace Calculator
                     buttons.Add(b);
                     grid.Controls.Add(b, c, r);
                 }
-            root.Controls.Add(grid, 0, 2);
+            root.Controls.Add(grid, 0, 3);
 
             historyToggle = new CalcButton
             {
