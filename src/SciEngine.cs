@@ -275,6 +275,16 @@ namespace Calculator
         static readonly string[] Tokens =
             { " mod ", "asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "exp(", "abs(", "ln(", "√(", "∛(" };
 
+        /// <summary>Shows an entry from the history: the expression line as stored and its result, ready to continue from.</summary>
+        public void Recall(string expressionLine, string invariantResult)
+        {
+            Clear();
+            expression = expressionLine;
+            resultText = invariantResult;
+            buffer = ToBuffer(invariantResult);
+            afterEquals = true;
+        }
+
         /// <summary>Removes the last key press: a whole function name or " mod ", otherwise one character.</summary>
         public void Backspace()
         {

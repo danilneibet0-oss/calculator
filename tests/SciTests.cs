@@ -76,6 +76,38 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void RecallFromHistory()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        var e = new SciEngine();
+        e.Recall("2 + 3 =", "5");
+        Eq("shows the result", e.DisplayText, "5");
+        Eq("shows the stored expression line", e.Expression, "2 + 3 =");
+        e.Operator("×"); e.Digit('2'); e.Evaluate();
+        Eq("continues from it", e.DisplayText, "10");
+
+        e.Recall("x =", "0.25");
+        Eq("fraction", e.DisplayText, "0,25");
+        Eq("fraction buffer", e.Buffer, "0.25");
+
+        e.Recall("x =", "1e+20");
+        Eq("exponent result", e.DisplayText, "1e+20");
+        Eq("exponent buffer", e.Buffer, "1×10^(20)");
+        e.Operator("÷"); e.Digit('2'); e.Evaluate();
+        Eq("exponent result continues", e.DisplayText, "5e+19");
+
+        e.Recall("x =", "-7");
+        Eq("negative", e.DisplayText, "-7");
+        e.Digit('3');
+        Eq("a digit starts again", e.DisplayText, "3");
+        Eq("and clears the expression line", e.Expression, "");
+
+        var failedState = new SciEngine();
+        failedState.Digit('5'); failedState.Operator("÷"); failedState.Digit('0'); failedState.Evaluate();
+        failedState.Recall("1 + 1 =", "2");
+        Eq("recall recovers from an error", failedState.DisplayText, "2");
+    }
+
     static void CalculatedEvent()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -317,6 +349,7 @@ static class SciTests
         Negation();
         AngleModes();
         CalculatedEvent();
+        RecallFromHistory();
         return failed;
     }
 }
