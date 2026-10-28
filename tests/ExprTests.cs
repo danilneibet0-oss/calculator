@@ -159,6 +159,25 @@ static class ExprTests
         Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
     }
 
+    static void Logarithms()
+    {
+        Eq("ln e", E("ln(e)"), 1);
+        Eq("ln 1", E("ln(1)"), 0);
+        Eq("ln 10", E("ln(10)"), 2.302585092994046);
+        Eq("log 100", E("log(100)"), 2);
+        Eq("log 1000", E("log(1000)"), 3);
+        Eq("log 0.001", E("log(0.001)"), -3);
+        Eq("exp 0", E("exp(0)"), 1);
+        Eq("exp 1", E("exp(1)"), Math.E);
+        Eq("ln of exp", E("ln(exp(5))"), 5);
+        Eq("log of power of ten", E("log(10^7)"), 7);
+        Err("ln zero", "ln(0)", Expr.Invalid);
+        Err("ln negative", "ln(-1)", Expr.Invalid);
+        Err("log zero", "log(0)", Expr.Invalid);
+        Err("log negative", "log(-5)", Expr.Invalid);
+        Err("exp overflow", "exp(1000)", Expr.Overflow);
+    }
+
     static void InverseTrig()
     {
         Eq("asin 0.5", E("asin(0.5)"), 30);
@@ -274,6 +293,7 @@ static class ExprTests
         TrigDegrees();
         TrigRadiansAndGradians();
         InverseTrig();
+        Logarithms();
         return failed;
     }
 }

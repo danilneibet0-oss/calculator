@@ -40,6 +40,18 @@ namespace Calculator
             return v;
         }
 
+        static double Ln(double x)
+        {
+            if (x <= 0) throw new ExprException(Invalid);
+            return Math.Log(x);
+        }
+
+        static double Log10(double x)
+        {
+            if (x <= 0) throw new ExprException(Invalid);
+            return Math.Log10(x);
+        }
+
         static double Sqrt(double x)
         {
             if (x < 0) throw new ExprException(Invalid);
@@ -199,6 +211,9 @@ namespace Calculator
                     case "asin": return Asin(x);
                     case "acos": return Acos(x);
                     case "atan": return FromRadians(Math.Atan(x));
+                    case "ln": return Ln(x);
+                    case "log": return Log10(x);
+                    case "exp": return Check(Math.Exp(x));
                 }
                 throw new ExprException(SyntaxError);
             }
