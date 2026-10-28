@@ -221,14 +221,36 @@ namespace Calculator
             buffer += ")";
         }
 
+        /// <summary>The buffer as it will be evaluated: no trailing operator, open parentheses closed.</summary>
+        string PrepareText()
+        {
+            string text = buffer;
+            string trailing = TrailingOperator();
+            if (trailing != null) text = text.Substring(0, text.Length - trailing.Length);
+            return text + new string(')', Math.Max(0, OpenCount()));
+        }
+
+        /// <summary>The value of what has been typed so far, without changing anything. False if there is none.</summary>
+        public bool TryGetValue(out double value)
+        {
+            value = 0;
+            if (HasError || buffer.Length == 0) return false;
+            try
+            {
+                value = Expr.Evaluate(PrepareText(), Angle);
+                return true;
+            }
+            catch (ExprException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>Evaluates the buffer. A trailing operator is dropped and open parentheses are closed.</summary>
         public void Evaluate()
         {
             if (HasError || afterEquals || buffer.Length == 0) return;
-            string text = buffer;
-            string trailing = TrailingOperator();
-            if (trailing != null) text = text.Substring(0, text.Length - trailing.Length);
-            text += new string(')', Math.Max(0, OpenCount()));
+            string text = PrepareText();
 
             expression = text + " =";
             try

@@ -76,6 +76,30 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void CurrentValue()
+    {
+        var e = K("2 + 3");
+        Eq("value of an expression", V(e), "True 5");
+        Eq("buffer is untouched", e.Buffer, "2+3");
+        Eq("still not evaluated", e.Expression, "");
+        Eq("trailing operator is ignored", V(K("2 +")), "True 2");
+        Eq("open groups are closed", V(K("( 2 + 3")), "True 5");
+        Eq("function in progress", V(K("sin 3 0")), "True 0.5");
+        Eq("result after equals", V(K("2 + 3 =")), "True 5");
+        Eq("empty has no value", V(K("")), "False 0");
+        Eq("error has no value", V(K("5 / 0 =")), "False 0");
+        Eq("non-integer factorial has no value", V(K("pi !")), "False 0");
+        Eq("divide by zero has no value", V(K("5 / 0")), "False 0");
+        Eq("it did not turn into an error", K("5 / 0").HasError.ToString(), "False");
+    }
+
+    static string V(SciEngine e)
+    {
+        double v;
+        bool ok = e.TryGetValue(out v);
+        return ok + " " + v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     static void Clipboard()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -377,6 +401,7 @@ static class SciTests
         CalculatedEvent();
         RecallFromHistory();
         Clipboard();
+        CurrentValue();
         return failed;
     }
 }
