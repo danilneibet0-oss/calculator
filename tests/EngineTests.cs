@@ -247,6 +247,7 @@ static class EngineTests
         SettingsTests();
         ClipboardTests();
         failed += ExprTests.Run();
+        failed += SciTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }
