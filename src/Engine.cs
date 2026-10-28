@@ -392,6 +392,9 @@ namespace Calculator
         /// <summary>Adds thousands separators and the local decimal separator to an invariant number string.</summary>
         public static string Group(string s)
         {
+            // Results of the scientific mode can look like "1.5e-7"; they are not grouped.
+            if (s.IndexOf('e') >= 0) return s.Replace(".", DecimalSeparator);
+
             string sign = "";
             if (s.StartsWith("-")) { sign = "-"; s = s.Substring(1); }
             string frac = "";

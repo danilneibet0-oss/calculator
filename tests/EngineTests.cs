@@ -42,6 +42,17 @@ static class EngineTests
         return CalcEngine.TryParseNumber(text, out v) ? CalcEngine.Format(v) : "none";
     }
 
+    static void GroupTests()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        Check("group integer", CalcEngine.Group("1234567"), "1 234 567");
+        Check("group negative", CalcEngine.Group("-1234"), "-1 234");
+        Check("group fraction", CalcEngine.Group("1234.5"), "1 234,5");
+        Check("exponent is not grouped", CalcEngine.Group("1e+20"), "1e+20");
+        Check("exponent keeps local separator", CalcEngine.Group("1.5e-7"), "1,5e-7");
+        Check("negative exponent number", CalcEngine.Group("-2.5e+30"), "-2,5e+30");
+    }
+
     static void ClipboardTests()
     {
         Check("parse plain", Parsed("123"), "123");
@@ -246,6 +257,7 @@ static class EngineTests
         MemoryTests();
         SettingsTests();
         ClipboardTests();
+        GroupTests();
         failed += ExprTests.Run();
         failed += SciTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
