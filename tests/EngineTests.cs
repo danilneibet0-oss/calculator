@@ -42,6 +42,25 @@ static class EngineTests
         return CalcEngine.TryParseNumber(text, out v) ? CalcEngine.Format(v) : "none";
     }
 
+    static void RecallTests()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        var e = new CalcEngine();
+        e.Recall(new HistoryItem { Expression = "2 + 3 =", Result = "5" });
+        Check("recall plain", e.DisplayText, "5");
+        e.Recall(new HistoryItem { Expression = "x =", Result = "1e+20" });
+        Check("recall exponent form", e.DisplayText, "100 000 000 000 000 000 000");
+        e.Recall(new HistoryItem { Expression = "x =", Result = "1.5e-7" });
+        Check("recall small exponent", e.DisplayText, "0,00000015");
+        e.Recall(new HistoryItem { Expression = "x =", Result = "1e+50" });
+        Check("recall too large", e.DisplayText, "Переполнение");
+        Check("error blocks digits until cleared", e.HasError.ToString(), "True");
+        e.Digit('7');
+        Check("digit recovers", e.DisplayText, "7");
+        e.Recall(new HistoryItem { Expression = "x =", Result = "-0.25" });
+        Check("recall negative", e.DisplayText, "-0,25");
+    }
+
     static void GroupTests()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -258,6 +277,7 @@ static class EngineTests
         SettingsTests();
         ClipboardTests();
         GroupTests();
+        RecallTests();
         failed += ExprTests.Run();
         failed += SciTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");

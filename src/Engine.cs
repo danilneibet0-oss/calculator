@@ -46,14 +46,18 @@ namespace Calculator
         /// <summary>Puts a past result back on the display, ready to be used in a new calculation.</summary>
         public void Recall(HistoryItem item)
         {
+            // Entries from the scientific mode may be in exponent form ("1e+20") or too large for decimal.
+            decimal value;
+            bool fits = decimal.TryParse(item.Result, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
             errorText = null;
             left = null;
             op = '\0';
             lastOp = '\0';
-            entry = item.Result;
             expression = item.Expression;
             newEntry = true;
             afterEquals = true;
+            if (fits) entry = Format(value);
+            else SetError("Переполнение");
         }
 
         void AddHistory(string expr, string result)
