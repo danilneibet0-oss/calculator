@@ -23,6 +23,12 @@ static class SciTests
             switch (key)
             {
                 case ".": e.Decimal(); break;
+                case "+": e.Operator("+"); break;
+                case "-": e.Operator("−"); break;
+                case "*": e.Operator("×"); break;
+                case "/": e.Operator("÷"); break;
+                case "^": e.Operator("^"); break;
+                case "mod": e.Operator(" mod "); break;
                 case "C": e.Clear(); break;
                 default: throw new ArgumentException("unknown key " + key);
             }
@@ -53,11 +59,27 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void Operators()
+    {
+        Eq("plain", K("1 + 2").Buffer, "1+2");
+        Eq("all symbols", K("1 + 2 - 3 * 4 / 5 ^ 6").Buffer, "1+2−3×4÷5^6");
+        Eq("mod has spaces", K("7 mod 3").Buffer, "7 mod 3");
+        Eq("second operator replaces the first", K("5 + *").Buffer, "5×");
+        Eq("replace with minus", K("5 * -").Buffer, "5−");
+        Eq("replace mod", K("5 mod +").Buffer, "5+");
+        Eq("operator first gets a zero", K("*").Buffer, "0×");
+        Eq("minus first is a sign", K("-").Buffer, "−");
+        Eq("sign then operator ignored", K("- *").Buffer, "−");
+        Eq("sign then digit", K("- 5").Buffer, "−5");
+        Eq("after decimal point", K("2 . 5 +").Buffer, "2.5+");
+    }
+
     public static int Run()
     {
         failed = 0;
         Digits();
         DecimalPoint();
+        Operators();
         return failed;
     }
 }

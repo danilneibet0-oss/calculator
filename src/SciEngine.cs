@@ -39,6 +39,41 @@ namespace Calculator
             buffer += number.Length == 0 ? "0." : ".";
         }
 
+        static readonly string[] BinaryOperators = { "+", "−", "×", "÷", "^", " mod " };
+
+        /// <summary>The binary operator the buffer ends with, or null.</summary>
+        string TrailingOperator()
+        {
+            foreach (string op in BinaryOperators)
+                if (buffer.EndsWith(op, StringComparison.Ordinal)) return op;
+            return null;
+        }
+
+        /// <summary>True if the buffer ends with a minus that is a sign, not a subtraction ("-" or "(-").</summary>
+        bool EndsWithSign()
+        {
+            return buffer == "−" || buffer.EndsWith("(−", StringComparison.Ordinal);
+        }
+
+        /// <summary>Appends one of + − × ÷ ^ or " mod ". A second operator in a row replaces the first.</summary>
+        public void Operator(string op)
+        {
+            if (buffer.Length == 0)
+            {
+                buffer = op == "−" ? "−" : "0" + op;
+                return;
+            }
+            if (EndsWithSign()) return;
+            if (buffer.EndsWith("(", StringComparison.Ordinal))
+            {
+                if (op == "−") buffer += op;
+                return;
+            }
+            string last = TrailingOperator();
+            if (last != null) buffer = buffer.Substring(0, buffer.Length - last.Length);
+            buffer += op;
+        }
+
         public void Clear()
         {
             buffer = "";
