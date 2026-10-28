@@ -23,6 +23,8 @@ static class SciTests
             switch (key)
             {
                 case ".": e.Decimal(); break;
+                case "(": e.OpenParen(); break;
+                case ")": e.CloseParen(); break;
                 case "+": e.Operator("+"); break;
                 case "-": e.Operator("−"); break;
                 case "*": e.Operator("×"); break;
@@ -59,6 +61,20 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void Parentheses()
+    {
+        Eq("group", K("( 1 + 2 )").Buffer, "(1+2)");
+        Eq("close without open", K("1 )").Buffer, "1");
+        Eq("close right after open", K("( )").Buffer, "(");
+        Eq("close after operator", K("( 1 + )").Buffer, "(1+");
+        Eq("close after sign", K("( - )").Buffer, "(−");
+        Eq("nested", K("( ( 1 + 2 ) * 3 )").Buffer, "((1+2)×3)");
+        Eq("extra close ignored", K("( 1 ) )").Buffer, "(1)");
+        Eq("open after digit keeps both", K("2 (").Buffer, "2(");
+        Eq("minus allowed after open", K("( -").Buffer, "(−");
+        Eq("other operator after open ignored", K("( *").Buffer, "(");
+    }
+
     static void Operators()
     {
         Eq("plain", K("1 + 2").Buffer, "1+2");
@@ -80,6 +96,7 @@ static class SciTests
         Digits();
         DecimalPoint();
         Operators();
+        Parentheses();
         return failed;
     }
 }

@@ -74,6 +74,31 @@ namespace Calculator
             buffer += op;
         }
 
+        /// <summary>Number of "(" still waiting for their ")".</summary>
+        int OpenCount()
+        {
+            int n = 0;
+            foreach (char c in buffer)
+            {
+                if (c == '(') n++;
+                else if (c == ')') n--;
+            }
+            return n;
+        }
+
+        public void OpenParen()
+        {
+            buffer += "(";
+        }
+
+        /// <summary>Closes a group, but only if there is one open and it has something inside.</summary>
+        public void CloseParen()
+        {
+            if (OpenCount() <= 0) return;
+            if (buffer.EndsWith("(", StringComparison.Ordinal) || TrailingOperator() != null || EndsWithSign()) return;
+            buffer += ")";
+        }
+
         public void Clear()
         {
             buffer = "";
