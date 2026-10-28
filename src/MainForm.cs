@@ -639,7 +639,7 @@ namespace Calculator
             displayMenu.Items.Add(paste);
             displayMenu.Opening += delegate
             {
-                copy.Enabled = !engine.HasError;
+                copy.Enabled = !(scientific ? sci.HasError : engine.HasError);
                 paste.Enabled = ClipboardHasNumber();
             };
             display.ContextMenuStrip = displayMenu;
@@ -678,7 +678,7 @@ namespace Calculator
             try { if (!string.IsNullOrEmpty(text)) Clipboard.SetText(text); } catch { }
         }
 
-        void CopyDisplay() { SetClipboard(engine.CopyText); }
+        void CopyDisplay() { SetClipboard(scientific ? sci.CopyText : engine.CopyText); }
 
         static bool ClipboardHasNumber()
         {
@@ -694,7 +694,9 @@ namespace Calculator
         {
             try
             {
-                if (Clipboard.ContainsText() && engine.Paste(Clipboard.GetText())) Refresh_();
+                if (!Clipboard.ContainsText()) return;
+                string text = Clipboard.GetText();
+                if (scientific ? sci.Paste(text) : engine.Paste(text)) Refresh_();
             }
             catch { }
         }
