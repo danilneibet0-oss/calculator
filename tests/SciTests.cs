@@ -43,6 +43,7 @@ static class SciTests
                 case "/": e.Operator("÷"); break;
                 case "^": e.Operator("^"); break;
                 case "mod": e.Operator(" mod "); break;
+                case "bs": e.Backspace(); break;
                 case "C": e.Clear(); break;
                 default: throw new ArgumentException("unknown key " + key);
             }
@@ -71,6 +72,27 @@ static class SciTests
         Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
         Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
+    static void Backspace()
+    {
+        Eq("one digit", K("1 2 3 bs").Buffer, "12");
+        Eq("last digit leaves empty", K("7 bs").Buffer, "");
+        Eq("on empty does nothing", K("bs").Buffer, "");
+        Eq("operator", K("1 + bs").Buffer, "1");
+        Eq("mod is removed whole", K("7 mod bs").Buffer, "7");
+        Eq("sin is removed whole", K("2 sin bs").Buffer, "2");
+        Eq("asin is removed whole", K("asin bs").Buffer, "");
+        Eq("sqrt is removed whole", K("sqrt bs").Buffer, "");
+        Eq("cbrt is removed whole", K("cbrt bs").Buffer, "");
+        Eq("ln is removed whole", K("ln bs").Buffer, "");
+        Eq("paren is one character", K("( 1 ) bs").Buffer, "(1");
+        Eq("decimal point", K("3 . bs").Buffer, "3");
+        Eq("pi", K("2 pi bs").Buffer, "2");
+        Eq("inside a function", K("sin 3 0 bs").Buffer, "sin(3");
+        Eq("after equals it edits the result", K("1 0 + 5 = bs").Buffer, "1");
+        Eq("after equals the expression line goes", K("1 0 + 5 = bs").Expression, "");
+        Eq("while an error is shown nothing happens", K("5 / 0 = bs").DisplayText, "Деление на ноль невозможно");
     }
 
     static void AfterEquals()
@@ -217,6 +239,7 @@ static class SciTests
         Evaluation();
         Errors();
         AfterEquals();
+        Backspace();
         return failed;
     }
 }

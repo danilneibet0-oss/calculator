@@ -228,6 +228,23 @@ namespace Calculator
             return formatted.Replace('-', '−');
         }
 
+        // Longest names first: "asin(" must be tried before "sin(".
+        static readonly string[] Tokens =
+            { " mod ", "asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "exp(", "abs(", "ln(", "√(", "∛(" };
+
+        /// <summary>Removes the last key press: a whole function name or " mod ", otherwise one character.</summary>
+        public void Backspace()
+        {
+            if (!Continue() || buffer.Length == 0) return;
+            foreach (string token in Tokens)
+            {
+                if (!buffer.EndsWith(token, StringComparison.Ordinal)) continue;
+                buffer = buffer.Substring(0, buffer.Length - token.Length);
+                return;
+            }
+            buffer = buffer.Substring(0, buffer.Length - 1);
+        }
+
         public void Clear()
         {
             buffer = "";
