@@ -193,8 +193,50 @@ namespace Calculator
                     case "sqrt": return Sqrt(x);
                     case "cbrt": return Cbrt(x);
                     case "abs": return Math.Abs(x);
+                    case "sin": return Sin(x);
+                    case "cos": return Cos(x);
+                    case "tan": return Tan(x);
                 }
                 throw new ExprException(SyntaxError);
+            }
+
+            // Multiples of 90 degrees give exact results, so sin(180) is 0 rather than 1.2e-16.
+            static bool QuarterTurn(double degrees, out int quadrant)
+            {
+                quadrant = 0;
+                double q = degrees / 90;
+                if (q != Math.Floor(q)) return false;
+                double m = q % 4;
+                if (m < 0) m += 4;
+                quadrant = (int)m;
+                return true;
+            }
+
+            static double Tidy(double v) { return Math.Abs(v) < 1e-15 ? 0 : v; }
+
+            double Sin(double x)
+            {
+                int k;
+                if (QuarterTurn(x, out k)) return new double[] { 0, 1, 0, -1 }[k];
+                return Tidy(Math.Sin(x * Math.PI / 180));
+            }
+
+            double Cos(double x)
+            {
+                int k;
+                if (QuarterTurn(x, out k)) return new double[] { 1, 0, -1, 0 }[k];
+                return Tidy(Math.Cos(x * Math.PI / 180));
+            }
+
+            double Tan(double x)
+            {
+                int k;
+                if (QuarterTurn(x, out k))
+                {
+                    if (k % 2 == 1) throw new ExprException(Invalid);   // tan(90) is undefined
+                    return 0;
+                }
+                return Tidy(Math.Tan(x * Math.PI / 180));
             }
 
             double ParseNumber()

@@ -131,6 +131,28 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static void TrigDegrees()
+    {
+        Eq("sin 30", E("sin(30)"), 0.5);
+        Eq("sin 90", E("sin(90)"), 1);
+        Eq("sin 180 is exactly zero", E("sin(180)"), 0);
+        Eq("sin 270", E("sin(270)"), -1);
+        Eq("sin 360", E("sin(360)"), 0);
+        Eq("sin -90", E("sin(-90)"), -1);
+        Eq("sin 450", E("sin(450)"), 1);
+        Eq("cos 0", E("cos(0)"), 1);
+        Eq("cos 60", E("cos(60)"), 0.5);
+        Eq("cos 90 is exactly zero", E("cos(90)"), 0);
+        Eq("cos 180", E("cos(180)"), -1);
+        Eq("tan 45", E("tan(45)"), 1);
+        Eq("tan 0", E("tan(0)"), 0);
+        Eq("tan 180", E("tan(180)"), 0);
+        Eq("pythagoras", E("sin(30)^2+cos(30)^2"), 1);
+        Eq("argument expression", E("sin(15+15)"), 0.5);
+        Err("tan 90", "tan(90)", Expr.Invalid);
+        Err("tan 270", "tan(270)", Expr.Invalid);
+    }
+
     static void Roots()
     {
         Eq("sqrt function", E("sqrt(16)"), 4);
@@ -200,6 +222,7 @@ static class ExprTests
         Percent();
         Modulo();
         Roots();
+        TrigDegrees();
         return failed;
     }
 }
