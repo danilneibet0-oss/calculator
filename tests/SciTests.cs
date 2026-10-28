@@ -76,6 +76,44 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void CalculatedEvent()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        var e = new SciEngine();
+        string expr = null, result = null;
+        int count = 0;
+        e.Calculated += delegate(string x, string r) { expr = x; result = r; count++; };
+
+        e.Digit('1'); e.Operator("+"); e.Digit('2'); e.Evaluate();
+        Eq("fires once", count.ToString(), "1");
+        Eq("expression line", expr, "1+2 =");
+        Eq("invariant result", result, "3");
+
+        e.Clear(); e.Digit('1'); e.Decimal(); e.Digit('5'); e.Operator("×"); e.Digit('2'); e.Evaluate();
+        Eq("uses the local separator in the expression", expr, "1,5×2 =");
+        Eq("keeps the invariant separator in the result", result, "3");
+
+        e.Clear(); e.Digit('1'); e.Operator("÷"); e.Digit('4'); e.Evaluate();
+        Eq("fraction result", result, "0.25");
+
+        e.Clear(); e.Digit('5'); e.Operator("÷"); e.Digit('0'); e.Evaluate();
+        Eq("not fired on error", count.ToString(), "3");
+
+        e.Clear(); e.Evaluate();
+        Eq("not fired on empty", count.ToString(), "3");
+
+        e.Clear(); e.Digit('9'); e.Evaluate(); e.Evaluate();
+        Eq("a second equals does not repeat it", count.ToString(), "4");
+
+        var big = new SciEngine();
+        big.Calculated += delegate(string x, string r) { result = r; };
+        foreach (char c in "10000000000") big.Digit(c);
+        big.Operator("×");
+        foreach (char c in "10000000000") big.Digit(c);
+        big.Evaluate();
+        Eq("exponent form", result, "1e+20");
+    }
+
     static void AngleModes()
     {
         Eq("degrees by default", new SciEngine().AngleLabel, "DEG");
@@ -278,6 +316,7 @@ static class SciTests
         Backspace();
         Negation();
         AngleModes();
+        CalculatedEvent();
         return failed;
     }
 }

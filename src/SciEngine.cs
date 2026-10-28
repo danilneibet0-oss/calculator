@@ -15,6 +15,9 @@ namespace Calculator
 
         public AngleMode Angle = AngleMode.Degrees;
 
+        /// <summary>Raised after every successful evaluation with the expression line and the invariant result.</summary>
+        public event Action<string, string> Calculated;
+
         /// <summary>Switches DEG, RAD, GRAD in turn.</summary>
         public void CycleAngle()
         {
@@ -221,7 +224,7 @@ namespace Calculator
         /// <summary>Evaluates the buffer. A trailing operator is dropped and open parentheses are closed.</summary>
         public void Evaluate()
         {
-            if (HasError || buffer.Length == 0) return;
+            if (HasError || afterEquals || buffer.Length == 0) return;
             string text = buffer;
             string trailing = TrailingOperator();
             if (trailing != null) text = text.Substring(0, text.Length - trailing.Length);
@@ -239,6 +242,7 @@ namespace Calculator
             }
             buffer = ToBuffer(resultText);
             afterEquals = true;
+            if (Calculated != null) Calculated(Expression, resultText);
         }
 
         /// <summary>Turns a formatted result into text that can be typed on: "1.5e-7" becomes "1.5×10^(−7)".</summary>
