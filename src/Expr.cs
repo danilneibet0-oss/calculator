@@ -196,6 +196,9 @@ namespace Calculator
                     case "sin": return Sin(x);
                     case "cos": return Cos(x);
                     case "tan": return Tan(x);
+                    case "asin": return Asin(x);
+                    case "acos": return Acos(x);
+                    case "atan": return FromRadians(Math.Atan(x));
                 }
                 throw new ExprException(SyntaxError);
             }
@@ -223,6 +226,28 @@ namespace Calculator
                     case AngleMode.Gradians: return x * Math.PI / 200;
                     default: return x;
                 }
+            }
+
+            double FromRadians(double r)
+            {
+                switch (angle)
+                {
+                    case AngleMode.Degrees: return r * 180 / Math.PI;
+                    case AngleMode.Gradians: return r * 200 / Math.PI;
+                    default: return r;
+                }
+            }
+
+            double Asin(double x)
+            {
+                if (Math.Abs(x) > 1) throw new ExprException(Invalid);
+                return FromRadians(Math.Asin(x));
+            }
+
+            double Acos(double x)
+            {
+                if (Math.Abs(x) > 1) throw new ExprException(Invalid);
+                return FromRadians(Math.Acos(x));
             }
 
             double Sin(double x)

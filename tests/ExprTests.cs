@@ -159,6 +159,27 @@ static class ExprTests
         Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
     }
 
+    static void InverseTrig()
+    {
+        Eq("asin 0.5", E("asin(0.5)"), 30);
+        Eq("asin 1", E("asin(1)"), 90);
+        Eq("asin -1", E("asin(-1)"), -90);
+        Eq("acos 0.5", E("acos(0.5)"), 60);
+        Eq("acos -1", E("acos(-1)"), 180);
+        Eq("acos 1", E("acos(1)"), 0);
+        Eq("atan 1", E("atan(1)"), 45);
+        Eq("atan 0", E("atan(0)"), 0);
+        Eq("atan of big number", E("atan(1000000000)"), 89.99999994270423);
+        Eq("round trip", E("sin(asin(0.3))"), 0.3);
+        Eq("rad asin 1", ER("asin(1)"), Math.PI / 2);
+        Eq("rad atan 1", ER("atan(1)"), Math.PI / 4);
+        Eq("grad atan 1", EG("atan(1)"), 50);
+        Eq("grad asin 1", EG("asin(1)"), 100);
+        Eq("grad acos 0", EG("acos(0)"), 100);
+        Err("asin out of range", "asin(2)", Expr.Invalid);
+        Err("acos out of range", "acos(-2)", Expr.Invalid);
+    }
+
     static void TrigDegrees()
     {
         Eq("sin 30", E("sin(30)"), 0.5);
@@ -252,6 +273,7 @@ static class ExprTests
         Roots();
         TrigDegrees();
         TrigRadiansAndGradians();
+        InverseTrig();
         return failed;
     }
 }
