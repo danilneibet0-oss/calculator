@@ -90,7 +90,7 @@ static class SciTests
         Eq("implicit pi", K("2 pi =").DisplayText, "6,28318530717959");
         Eq("negative result", K("3 - 5 =").DisplayText, "-2");
         Eq("negative result buffer uses the minus sign", K("3 - 5 =").Buffer, "−2");
-        Eq("grouped", K("1 2 3 4 5 6 * 1 0 =").DisplayText, "12 345 600");
+        Eq("grouped", K("1 2 3 4 5 6 * 1 0 =").DisplayText, "1 234 560");
         Eq("exponent display", K("1 2 3 4 5 6 7 * 1 0 0 0 0 0 0 0 0 0 0 0 =").DisplayText, "1,234567e+17");
         Eq("exponent buffer can be typed on", K("1 2 3 4 5 6 7 * 1 0 0 0 0 0 0 0 0 0 0 0 =").Buffer, "1.234567×10^(17)");
         Eq("small exponent buffer", K("1 / 8 0 0 0 0 0 0 0 =").Buffer, "1.25×10^(−8)");
@@ -173,6 +173,7 @@ static class SciTests
         Parentheses();
         ConstantsAndFactorial();
         Functions();
-return failed;
+        Evaluation();
+        return failed;
     }
 }
