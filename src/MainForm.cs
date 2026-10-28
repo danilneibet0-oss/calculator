@@ -240,7 +240,7 @@ namespace Calculator
 
             if (hasMemory)
                 using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(98 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
+                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(150 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
                         Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
 
             float big = Math.Max(14f, Height * 0.42f);
@@ -366,7 +366,8 @@ namespace Calculator
         readonly Panel historyHeader = new Panel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall;
+        CalcButton clearHistoryButton, historyToggle, pinToggle, modeToggle, memClear, memRecall;
+        const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
         TableLayoutPanel sciPanel;
         readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
             new System.Collections.Generic.Dictionary<string, CalcButton>();
@@ -544,6 +545,19 @@ namespace Calculator
             buttons.Add(pinToggle);
             tips.SetToolTip(pinToggle, "Поверх всех окон (Ctrl+T)");
 
+            modeToggle = new CalcButton
+            {
+                Text = "f(x)",
+                Kind = Kind.Function,
+                Size = new Size(48, 34),
+                Location = new Point(94, 8),
+                FontFamilyName = family
+            };
+            modeToggle.Click += delegate { SetScientific(!scientific); };
+            display.Controls.Add(modeToggle);
+            buttons.Add(modeToggle);
+            tips.SetToolTip(modeToggle, "Инженерный режим (Ctrl+2), обычный (Ctrl+1)");
+
             BuildHistoryPanel();
             BuildMenus();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
@@ -681,6 +695,25 @@ namespace Calculator
                 if (Clipboard.ContainsText() && engine.Paste(Clipboard.GetText())) Refresh_();
             }
             catch { }
+        }
+
+        /// <summary>Switches between the standard and the scientific keypad; the window grows by the function panel.</summary>
+        void SetScientific(bool on)
+        {
+            if (scientific == on) return;
+            scientific = on;
+            int delta = (int)Math.Round(SciPanelHeight * DeviceDpi / 96f);
+            ((TableLayoutPanel)sciPanel.Parent).RowStyles[2].Height = on ? delta : 0;
+            sciPanel.Visible = on;
+            if (WindowState == FormWindowState.Normal)
+            {
+                MinimumSize = new Size(MinimumSize.Width, MinimumSize.Height + (on ? delta : -delta));
+                Height += on ? delta : -delta;
+            }
+            modeToggle.Active = on;
+            modeToggle.Invalidate();
+            Refresh_();
+            ActiveControl = null;
         }
 
         void ToggleTopMost()
@@ -927,6 +960,8 @@ namespace Calculator
             if (e.KeyCode == Keys.Delete) { Press("CE"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.H) { ToggleHistory(); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.T) { ToggleTopMost(); e.Handled = true; }
+            else if (e.Control && (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1)) { SetScientific(false); e.Handled = true; }
+            else if (e.Control && (e.KeyCode == Keys.D2 || e.KeyCode == Keys.NumPad2)) { SetScientific(true); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.L) { Press("MC"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.R) { Press("MR"); e.Handled = true; }
             else if (e.Control && e.KeyCode == Keys.P) { Press("M+"); e.Handled = true; }
