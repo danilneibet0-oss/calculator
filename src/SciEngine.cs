@@ -32,6 +32,13 @@ namespace Calculator
             buffer += d;
         }
 
+        public void Decimal()
+        {
+            string number = TrailingNumber();
+            if (number.IndexOf('.') >= 0) return;
+            buffer += number.Length == 0 ? "0." : ".";
+        }
+
         public void Clear()
         {
             buffer = "";

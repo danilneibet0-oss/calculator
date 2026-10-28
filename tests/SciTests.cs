@@ -22,6 +22,7 @@ static class SciTests
             if (key.Length == 1 && char.IsDigit(key[0])) { e.Digit(key[0]); continue; }
             switch (key)
             {
+                case ".": e.Decimal(); break;
                 case "C": e.Clear(); break;
                 default: throw new ArgumentException("unknown key " + key);
             }
@@ -41,10 +42,22 @@ static class SciTests
         Eq("buffer", K("4 2").Buffer, "42");
     }
 
+    static void DecimalPoint()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        Eq("point after digits", K("3 . 1 4").DisplayText, "3,14");
+        Eq("point first becomes 0.", K(".").Buffer, "0.");
+        Eq("point first then digit", K(". 5").Buffer, "0.5");
+        Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
+        Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
+        Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
     public static int Run()
     {
         failed = 0;
         Digits();
+        DecimalPoint();
         return failed;
     }
 }
