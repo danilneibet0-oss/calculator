@@ -17,6 +17,8 @@ namespace Calculator
         public const string SyntaxError = "Ошибка в выражении";
         public const string DivideByZero = "Деление на ноль невозможно";
         public const string Undefined = "Результат не определён";
+        public const string Invalid = "Недопустимый ввод";
+        public const string Overflow = "Переполнение";
 
         public static double Evaluate(string text, AngleMode angle)
         {
@@ -28,6 +30,21 @@ namespace Calculator
         {
             if (b == 0) throw new ExprException(a == 0 ? Undefined : DivideByZero);
             return a / b;
+        }
+
+        /// <summary>Turns NaN and infinity into user-facing errors.</summary>
+        static double Check(double v)
+        {
+            if (double.IsNaN(v)) throw new ExprException(Invalid);
+            if (double.IsInfinity(v)) throw new ExprException(Overflow);
+            return v;
+        }
+
+        static double Power(double b, double e)
+        {
+            if (b == 0 && e == 0) throw new ExprException(Undefined);
+            if (b == 0 && e < 0) throw new ExprException(DivideByZero);
+            return Check(Math.Pow(b, e));
         }
 
         sealed class Parser
@@ -76,7 +93,15 @@ namespace Calculator
             {
                 if (Match('-') || Match('−')) return -ParseUnary();
                 if (Match('+')) return ParseUnary();
-                return ParsePrimary();
+                return ParsePower();
+            }
+
+            // Right-associative, and binds tighter than unary minus: -2^2 = -4, 2^3^2 = 512.
+            double ParsePower()
+            {
+                double b = ParsePrimary();
+                if (Match('^')) return Power(b, ParseUnary());
+                return b;
             }
 
             double ParsePrimary()

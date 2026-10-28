@@ -104,6 +104,21 @@ static class ExprTests
         Eq("subtract negative", E("2--3"), 5);
     }
 
+    static void Powers()
+    {
+        Eq("square", E("2^3"), 8);
+        Eq("right associative", E("2^3^2"), 512);
+        Eq("minus binds looser", E("-2^2"), -4);
+        Eq("negative exponent", E("2^-1"), 0.5);
+        Eq("negative base in parens", E("(-2)^2"), 4);
+        Eq("power before multiply", E("2*3^2"), 18);
+        Eq("fractional exponent", E("4^0.5"), 2);
+        Err("zero to zero", "0^0", Expr.Undefined);
+        Err("zero to negative", "0^-1", Expr.DivideByZero);
+        Err("even root of negative", "(-8)^(1/3)", Expr.Invalid);
+        Err("huge power", "10^400", Expr.Overflow);
+    }
+
     public static int Run()
     {
         failed = 0;
@@ -113,6 +128,7 @@ static class ExprTests
         DivisionByZero();
         Parentheses();
         UnarySigns();
+        Powers();
         return failed;
     }
 }
