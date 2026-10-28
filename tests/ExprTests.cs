@@ -58,11 +58,25 @@ static class ExprTests
         Err("dangling minus", "1-", Expr.SyntaxError);
     }
 
+    static void MultiplyDivide()
+    {
+        Eq("multiply", E("2*3"), 6);
+        Eq("times sign", E("2×3"), 6);
+        Eq("divide", E("6/3"), 2);
+        Eq("divide sign", E("6÷4"), 1.5);
+        Eq("precedence mul first", E("2+3*4"), 14);
+        Eq("precedence mul last", E("2*3+4"), 10);
+        Eq("divide is left-assoc", E("8/2/2"), 2);
+        Eq("subtract with mul", E("10-2*3"), 4);
+        Err("dangling times", "2*", Expr.SyntaxError);
+    }
+
     public static int Run()
     {
         failed = 0;
         Numbers();
         AddSubtract();
+        MultiplyDivide();
         return failed;
     }
 }

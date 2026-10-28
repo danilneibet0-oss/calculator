@@ -53,7 +53,16 @@ namespace Calculator
                 }
             }
 
-            double ParseTerm() { return ParsePrimary(); }
+            double ParseTerm()
+            {
+                double v = ParsePrimary();
+                while (true)
+                {
+                    if (Match('*') || Match('×')) v *= ParsePrimary();
+                    else if (Match('/') || Match('÷')) v /= ParsePrimary();
+                    else return v;
+                }
+            }
 
             double ParsePrimary()
             {
