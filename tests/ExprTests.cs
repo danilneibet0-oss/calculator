@@ -131,6 +131,24 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static void Roots()
+    {
+        Eq("sqrt function", E("sqrt(16)"), 4);
+        Eq("sqrt sign", E("√9"), 3);
+        Eq("sqrt sign with parens", E("√(16)"), 4);
+        Eq("sqrt twice", E("sqrt(2)*sqrt(2)"), 2);
+        Eq("sqrt of expression", E("sqrt(3+6)"), 3);
+        Eq("cbrt function", E("cbrt(27)"), 3);
+        Eq("cbrt sign", E("∛8"), 2);
+        Eq("cbrt negative", E("cbrt(-8)"), -2);
+        Eq("abs", E("abs(-5)"), 5);
+        Eq("abs of expression", E("abs(3-10)"), 7);
+        Err("sqrt of negative", "sqrt(-1)", Expr.Invalid);
+        Err("function without parens", "sqrt", Expr.SyntaxError);
+        Err("unclosed function", "sqrt(4", Expr.SyntaxError);
+        Err("unknown function", "foo(1)", Expr.SyntaxError);
+    }
+
     static void Modulo()
     {
         Eq("basic", E("10 mod 3"), 1);

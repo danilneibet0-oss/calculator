@@ -40,6 +40,20 @@ namespace Calculator
             return v;
         }
 
+        static double Sqrt(double x)
+        {
+            if (x < 0) throw new ExprException(Invalid);
+            return Math.Sqrt(x);
+        }
+
+        /// <summary>Real cube root, defined for negative numbers too; exact for perfect cubes.</summary>
+        static double Cbrt(double x)
+        {
+            double r = Math.Sign(x) * Math.Pow(Math.Abs(x), 1.0 / 3.0);
+            double rounded = Math.Round(r);
+            return rounded * rounded * rounded == x ? rounded : r;
+        }
+
         /// <summary>Remainder with the sign of the dividend, like the C# % operator.</summary>
         static double Modulo(double a, double b)
         {
@@ -143,11 +157,42 @@ namespace Calculator
                     return inner;
                 }
                 if (Match('π')) return Math.PI;
+                if (Match('√')) return Sqrt(ParseRootOperand());
+                if (Match('∛')) return Cbrt(ParseRootOperand());
                 if (pos < s.Length && IsAsciiLetter(s[pos]))
                 {
                     string word = ReadWord();
                     if (word == "pi") return Math.PI;
                     if (word == "e") return Math.E;
+                    return ApplyFunction(word, ParseArgument());
+                }
+                throw new ExprException(SyntaxError);
+            }
+
+            /// <summary>Parses "(expr)" after a function name.</summary>
+            double ParseArgument()
+            {
+                if (!Match('(')) throw new ExprException(SyntaxError);
+                double v = ParseExpr();
+                if (!Match(')')) throw new ExprException(SyntaxError);
+                return v;
+            }
+
+            /// <summary>The root signs accept a parenthesised expression or a single number/constant.</summary>
+            double ParseRootOperand()
+            {
+                SkipSpaces();
+                if (pos < s.Length && s[pos] == '(') return ParseArgument();
+                return ParsePrimary();
+            }
+
+            double ApplyFunction(string name, double x)
+            {
+                switch (name)
+                {
+                    case "sqrt": return Sqrt(x);
+                    case "cbrt": return Cbrt(x);
+                    case "abs": return Math.Abs(x);
                 }
                 throw new ExprException(SyntaxError);
             }
