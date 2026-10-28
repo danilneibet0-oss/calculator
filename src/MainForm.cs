@@ -358,6 +358,9 @@ namespace Calculator
         static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
 
         readonly CalcEngine engine = new CalcEngine();
+        readonly SciEngine sci = new SciEngine();
+        bool scientific;   // which engine the keys go to
+        bool second;       // "2nd" key: inverse trigonometry and exponentials
         readonly DisplayBox display = new DisplayBox();
         readonly Panel historyPanel = new Panel();
         readonly Panel historyHeader = new Panel();
@@ -494,6 +497,7 @@ namespace Calculator
 
             BuildHistoryPanel();
             BuildMenus();
+            sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
             Controls.Add(historyPanel);
 
@@ -514,7 +518,8 @@ namespace Calculator
             historyList.FontFamilyName = family;
             historyList.ItemChosen += delegate(HistoryItem item)
             {
-                engine.Recall(item);
+                if (scientific) sci.Recall(item.Expression, item.Result);
+                else engine.Recall(item);
                 Refresh_();
                 ActiveControl = null;
             };
@@ -769,13 +774,58 @@ namespace Calculator
 
         void Refresh_()
         {
-            display.SetText(engine.Expression, engine.DisplayText);
+            if (scientific) display.SetText(sci.Expression, sci.DisplayText);
+            else display.SetText(engine.Expression, engine.DisplayText);
             display.SetMemory(engine.HasMemory);
             memClear.Enabled = memRecall.Enabled = engine.HasMemory;
         }
 
+        /// <summary>Key presses in scientific mode; the keys come from the keypad and from the function panel.</summary>
+        void PressSci(string key)
+        {
+            switch (key)
+            {
+                case "0": case "1": case "2": case "3": case "4":
+                case "5": case "6": case "7": case "8": case "9":
+                    sci.Digit(key[0]); break;
+                case ",": sci.Decimal(); break;
+                case "+": sci.Operator("+"); break;
+                case "−": sci.Operator("−"); break;
+                case "×": sci.Operator("×"); break;
+                case "÷": sci.Operator("÷"); break;
+                case "%": sci.Operator(" mod "); break;   // the % key is labelled "mod" in this mode
+                case "xʸ": sci.Operator("^"); break;
+                case "=": sci.Evaluate(); break;
+                case "±": sci.Negate(); break;
+                case "√x": sci.Function("√"); break;
+                case "x²": sci.Square(); break;
+                case "1/x": sci.Reciprocal(); break;
+                case "⌫": sci.Backspace(); break;
+                case "CE": case "C": sci.Clear(); break;
+                case "(": sci.OpenParen(); break;
+                case ")": sci.CloseParen(); break;
+                case "π": sci.Constant("π"); break;
+                case "e": sci.Constant("e"); break;
+                case "n!": sci.Factorial(); break;
+                case "sin": case "cos": case "tan": sci.Function(second ? "a" + key : key); break;
+                case "ln": if (second) sci.Function("exp"); else sci.Function("ln"); break;
+                case "log": if (second) sci.TenPower(); else sci.Function("log"); break;
+                case "|x|": sci.Function("abs"); break;
+                case "∛x": sci.Function("∛"); break;
+                case "2nd": second = !second; break;
+                case "DEG": sci.CycleAngle(); break;
+            }
+        }
+
         void Press(string key)
         {
+            if (scientific)
+            {
+                PressSci(key);
+                Refresh_();
+                SyncHistory();
+                return;
+            }
             switch (key)
             {
                 case "0": case "1": case "2": case "3": case "4":
