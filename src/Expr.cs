@@ -42,7 +42,18 @@ namespace Calculator
                 return v;
             }
 
-            double ParseExpr() { return ParsePrimary(); }
+            double ParseExpr()
+            {
+                double v = ParseTerm();
+                while (true)
+                {
+                    if (Match('+')) v += ParseTerm();
+                    else if (Match('-') || Match('−')) v -= ParseTerm();
+                    else return v;
+                }
+            }
+
+            double ParseTerm() { return ParsePrimary(); }
 
             double ParsePrimary()
             {
@@ -65,6 +76,14 @@ namespace Calculator
                 }
                 if (!seenDigit) throw new ExprException(SyntaxError);
                 return double.Parse(s.Substring(start, pos - start).Replace(',', '.'), CultureInfo.InvariantCulture);
+            }
+
+            /// <summary>Consumes c (after optional spaces) if it is next.</summary>
+            bool Match(char c)
+            {
+                SkipSpaces();
+                if (pos < s.Length && s[pos] == c) { pos++; return true; }
+                return false;
             }
 
             void SkipSpaces()

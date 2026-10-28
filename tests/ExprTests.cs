@@ -45,10 +45,24 @@ static class ExprTests
         Err("letters", "abc", Expr.SyntaxError);
     }
 
+    static void AddSubtract()
+    {
+        Eq("add", E("1+2"), 3);
+        Eq("subtract", E("10-4"), 6);
+        Eq("chain add", E("1+2+3"), 6);
+        Eq("chain subtract is left-assoc", E("5-2-1"), 2);
+        Eq("spaces", E("1 + 2"), 3);
+        Eq("unicode minus", E("2−1"), 1);
+        Eq("decimals", E("0.1+0.2"), 0.3);
+        Err("dangling plus", "1+", Expr.SyntaxError);
+        Err("dangling minus", "1-", Expr.SyntaxError);
+    }
+
     public static int Run()
     {
         failed = 0;
         Numbers();
+        AddSubtract();
         return failed;
     }
 }
