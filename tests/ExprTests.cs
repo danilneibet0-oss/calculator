@@ -80,6 +80,17 @@ static class ExprTests
         Eq("zero numerator", E("0/5"), 0);
     }
 
+    static void Parentheses()
+    {
+        Eq("group first", E("(1+2)*3"), 9);
+        Eq("double parens", E("((2))"), 2);
+        Eq("group on the right", E("2*(3+4)"), 14);
+        Eq("two groups", E("(1+2)-(3-4)"), 4);
+        Err("missing close", "(1+2", Expr.SyntaxError);
+        Err("extra close", "1+2)", Expr.SyntaxError);
+        Err("empty parens", "()", Expr.SyntaxError);
+    }
+
     public static int Run()
     {
         failed = 0;
@@ -87,6 +98,7 @@ static class ExprTests
         AddSubtract();
         MultiplyDivide();
         DivisionByZero();
+        Parentheses();
         return failed;
     }
 }

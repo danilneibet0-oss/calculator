@@ -76,6 +76,12 @@ namespace Calculator
             {
                 SkipSpaces();
                 if (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '.' || s[pos] == ',')) return ParseNumber();
+                if (Match('('))
+                {
+                    double inner = ParseExpr();
+                    if (!Match(')')) throw new ExprException(SyntaxError);
+                    return inner;
+                }
                 throw new ExprException(SyntaxError);
             }
 
