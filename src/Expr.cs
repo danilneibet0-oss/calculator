@@ -40,6 +40,15 @@ namespace Calculator
             return v;
         }
 
+        static double Factorial(double v)
+        {
+            if (v < 0 || v != Math.Floor(v)) throw new ExprException(Invalid);
+            if (v > 170) throw new ExprException(Overflow);   // 171! no longer fits in a double
+            double r = 1;
+            for (int i = 2; i <= (int)v; i++) r *= i;
+            return r;
+        }
+
         static double Power(double b, double e)
         {
             if (b == 0 && e == 0) throw new ExprException(Undefined);
@@ -99,9 +108,19 @@ namespace Calculator
             // Right-associative, and binds tighter than unary minus: -2^2 = -4, 2^3^2 = 512.
             double ParsePower()
             {
-                double b = ParsePrimary();
+                double b = ParsePostfix();
                 if (Match('^')) return Power(b, ParseUnary());
                 return b;
+            }
+
+            double ParsePostfix()
+            {
+                double v = ParsePrimary();
+                while (true)
+                {
+                    if (Match('!')) v = Factorial(v);
+                    else return v;
+                }
             }
 
             double ParsePrimary()

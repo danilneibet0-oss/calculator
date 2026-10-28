@@ -131,6 +131,21 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static void Factorials()
+    {
+        Eq("three", E("3!"), 6);
+        Eq("zero", E("0!"), 1);
+        Eq("five", E("5!"), 120);
+        Eq("repeated", E("3!!"), 720);
+        Eq("minus applies after", E("-3!"), -6);
+        Eq("in exponent", E("2^3!"), 64);
+        Eq("on the base", E("2!^2"), 4);
+        Eq("largest finite", E("170!"), 7.257415615307994e306);
+        Err("too large", "171!", Expr.Overflow);
+        Err("negative", "(-1)!", Expr.Invalid);
+        Err("fraction", "2.5!", Expr.Invalid);
+    }
+
     public static int Run()
     {
         failed = 0;
@@ -142,6 +157,7 @@ static class ExprTests
         UnarySigns();
         Powers();
         Constants();
+        Factorials();
         return failed;
     }
 }
