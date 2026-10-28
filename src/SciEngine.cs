@@ -10,6 +10,7 @@ namespace Calculator
         string buffer = "";
         string expression = "";     // the line above the result, e.g. "1+2 ="
         string resultText;          // formatted result while afterEquals
+        string errorText;
         bool afterEquals;
 
         public AngleMode Angle = AngleMode.Degrees;
@@ -20,10 +21,13 @@ namespace Calculator
         /// <summary>The finished expression shown above the result.</summary>
         public string Expression { get { return Show(expression); } }
 
+        public bool HasError { get { return errorText != null; } }
+
         public string DisplayText
         {
             get
             {
+                if (errorText != null) return errorText;
                 if (afterEquals) return CalcEngine.Group(resultText);
                 return buffer.Length == 0 ? "0" : Show(buffer);
             }
@@ -169,14 +173,22 @@ namespace Calculator
         /// <summary>Evaluates the buffer. A trailing operator is dropped and open parentheses are closed.</summary>
         public void Evaluate()
         {
-            if (buffer.Length == 0) return;
+            if (HasError || buffer.Length == 0) return;
             string text = buffer;
             string trailing = TrailingOperator();
             if (trailing != null) text = text.Substring(0, text.Length - trailing.Length);
             text += new string(')', Math.Max(0, OpenCount()));
 
-            resultText = Expr.Format(Expr.Evaluate(text, Angle));
             expression = text + " =";
+            try
+            {
+                resultText = Expr.Format(Expr.Evaluate(text, Angle));
+            }
+            catch (ExprException ex)
+            {
+                errorText = ex.Message;
+                return;
+            }
             buffer = ToBuffer(resultText);
             afterEquals = true;
         }
@@ -193,6 +205,7 @@ namespace Calculator
         {
             buffer = "";
             expression = "";
+            errorText = null;
             afterEquals = false;
         }
     }

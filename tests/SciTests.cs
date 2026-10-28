@@ -73,6 +73,24 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void Errors()
+    {
+        Eq("divide by zero", K("5 / 0 =").DisplayText, "Деление на ноль невозможно");
+        Eq("zero over zero", K("0 / 0 =").DisplayText, "Результат не определён");
+        Eq("root of negative", K("sqrt - 4 =").DisplayText, "Недопустимый ввод");
+        Eq("fractional power of negative", K("( - 8 ) ^ ( 1 / 3 ) =").DisplayText, "Недопустимый ввод");
+        Eq("log of zero", K("ln 0 =").DisplayText, "Недопустимый ввод");
+        Eq("factorial overflow", K("1 7 1 ! =").DisplayText, "Переполнение");
+        Eq("syntax error", K("( =").DisplayText, "Ошибка в выражении");
+        Eq("sign alone", K("- =").DisplayText, "Ошибка в выражении");
+        Eq("flag is set", K("5 / 0 =").HasError.ToString(), "True");
+        Eq("flag is not set by a good result", K("5 / 1 =").HasError.ToString(), "False");
+        Eq("expression line is kept", K("5 / 0 =").Expression, "5÷0 =");
+        Eq("clear recovers", K("5 / 0 = C").DisplayText, "0");
+        Eq("clear resets the flag", K("5 / 0 = C").HasError.ToString(), "False");
+        Eq("equals again changes nothing", K("5 / 0 = =").DisplayText, "Деление на ноль невозможно");
+    }
+
     static void Evaluation()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -174,6 +192,7 @@ static class SciTests
         ConstantsAndFactorial();
         Functions();
         Evaluation();
+        Errors();
         return failed;
     }
 }
