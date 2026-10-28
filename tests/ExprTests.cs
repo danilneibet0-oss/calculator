@@ -71,12 +71,22 @@ static class ExprTests
         Err("dangling times", "2*", Expr.SyntaxError);
     }
 
+    static void DivisionByZero()
+    {
+        Err("divide by zero", "5/0", Expr.DivideByZero);
+        Err("divide sign by zero", "1÷0", Expr.DivideByZero);
+        Err("zero over zero", "0/0", Expr.Undefined);
+        Err("zero in the middle", "2+3/(1-1)".Replace("(1-1)", "0"), Expr.DivideByZero);
+        Eq("zero numerator", E("0/5"), 0);
+    }
+
     public static int Run()
     {
         failed = 0;
         Numbers();
         AddSubtract();
         MultiplyDivide();
+        DivisionByZero();
         return failed;
     }
 }

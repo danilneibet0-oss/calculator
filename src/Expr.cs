@@ -15,11 +15,19 @@ namespace Calculator
     public static class Expr
     {
         public const string SyntaxError = "Ошибка в выражении";
+        public const string DivideByZero = "Деление на ноль невозможно";
+        public const string Undefined = "Результат не определён";
 
         public static double Evaluate(string text, AngleMode angle)
         {
             if (text == null) throw new ExprException(SyntaxError);
             return new Parser(text, angle).ParseAll();
+        }
+
+        static double Divide(double a, double b)
+        {
+            if (b == 0) throw new ExprException(a == 0 ? Undefined : DivideByZero);
+            return a / b;
         }
 
         sealed class Parser
@@ -59,7 +67,7 @@ namespace Calculator
                 while (true)
                 {
                     if (Match('*') || Match('×')) v *= ParsePrimary();
-                    else if (Match('/') || Match('÷')) v /= ParsePrimary();
+                    else if (Match('/') || Match('÷')) v = Divide(v, ParsePrimary());
                     else return v;
                 }
             }
