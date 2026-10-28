@@ -63,13 +63,20 @@ namespace Calculator
 
             double ParseTerm()
             {
-                double v = ParsePrimary();
+                double v = ParseUnary();
                 while (true)
                 {
-                    if (Match('*') || Match('×')) v *= ParsePrimary();
-                    else if (Match('/') || Match('÷')) v = Divide(v, ParsePrimary());
+                    if (Match('*') || Match('×')) v *= ParseUnary();
+                    else if (Match('/') || Match('÷')) v = Divide(v, ParseUnary());
                     else return v;
                 }
+            }
+
+            double ParseUnary()
+            {
+                if (Match('-') || Match('−')) return -ParseUnary();
+                if (Match('+')) return ParseUnary();
+                return ParsePrimary();
             }
 
             double ParsePrimary()

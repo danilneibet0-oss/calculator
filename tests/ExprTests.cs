@@ -91,6 +91,19 @@ static class ExprTests
         Err("empty parens", "()", Expr.SyntaxError);
     }
 
+    static void UnarySigns()
+    {
+        Eq("negative number", E("-5"), -5);
+        Eq("unicode minus sign", E("−5"), -5);
+        Eq("double negative", E("--5"), 5);
+        Eq("negative operand", E("2*-3"), -6);
+        Eq("negate group", E("-(2+3)"), -5);
+        Eq("unary plus", E("+4"), 4);
+        Eq("minus minus with space", E("5- -3"), 8);
+        Eq("negative first factor", E("-2*3"), -6);
+        Eq("subtract negative", E("2--3"), 5);
+    }
+
     public static int Run()
     {
         failed = 0;
@@ -99,6 +112,7 @@ static class ExprTests
         MultiplyDivide();
         DivisionByZero();
         Parentheses();
+        UnarySigns();
         return failed;
     }
 }
