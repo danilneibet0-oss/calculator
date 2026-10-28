@@ -275,6 +275,29 @@ namespace Calculator
         static readonly string[] Tokens =
             { " mod ", "asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "exp(", "abs(", "ln(", "√(", "∛(" };
 
+        /// <summary>What Ctrl+C should copy: the result, or the expression as typed. Empty while an error is shown.</summary>
+        public string CopyText
+        {
+            get
+            {
+                if (HasError) return "";
+                return afterEquals ? resultText.Replace(".", CalcEngine.DecimalSeparator) : Show(buffer);
+            }
+        }
+
+        /// <summary>Inserts a pasted number in place of the one being typed. Returns false if the text is not a number.</summary>
+        public bool Paste(string text)
+        {
+            decimal value;
+            if (!CalcEngine.TryParseNumber(text, out value)) return false;
+            Begin();
+            string number = TrailingNumber();
+            buffer = buffer.Substring(0, buffer.Length - number.Length);
+            string literal = CalcEngine.Format(Math.Abs(value));
+            buffer += value < 0 ? "(−" + literal + ")" : literal;
+            return true;
+        }
+
         /// <summary>Shows an entry from the history: the expression line as stored and its result, ready to continue from.</summary>
         public void Recall(string expressionLine, string invariantResult)
         {

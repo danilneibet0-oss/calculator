@@ -76,6 +76,32 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void Clipboard()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        Eq("copy the expression while typing", K("1 . 5 + 2").CopyText, "1,5+2");
+        Eq("copy the result after equals", K("1 . 5 + 2 =").CopyText, "3,5");
+        Eq("copy nothing on an error", K("5 / 0 =").CopyText, "");
+        Eq("copy an exponent result", K("1 0 0 0 0 0 0 0 0 0 0 * 1 0 0 0 0 0 0 0 0 0 0 =").CopyText, "1e+20");
+
+        var e = new SciEngine();
+        Eq("paste returns true", e.Paste("12,5").ToString(), "True");
+        Eq("paste into empty", e.Buffer, "12.5");
+        e.Operator("+"); e.Paste("1 000");
+        Eq("paste after an operator", e.Buffer, "12.5+1000");
+        e.Paste("7");
+        Eq("paste replaces the number being typed", e.Buffer, "12.5+7");
+        e.Paste("-3");
+        Eq("negative numbers are wrapped", e.Buffer, "12.5+(−3)");
+        Eq("bad text is refused", e.Paste("abc").ToString(), "False");
+        Eq("bad text changes nothing", e.Buffer, "12.5+(−3)");
+        e.Evaluate();
+        Eq("pasted expression evaluates", e.DisplayText, "9,5");
+        e.Paste("4");
+        Eq("paste after equals starts again", e.Buffer, "4");
+        Eq("paste after an error starts again", K("5 / 0 =").Paste("8").ToString(), "True");
+    }
+
     static void RecallFromHistory()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -350,6 +376,7 @@ static class SciTests
         AngleModes();
         CalculatedEvent();
         RecallFromHistory();
+        Clipboard();
         return failed;
     }
 }
