@@ -15,6 +15,27 @@ namespace Calculator
 
         public AngleMode Angle = AngleMode.Degrees;
 
+        /// <summary>Switches DEG, RAD, GRAD in turn.</summary>
+        public void CycleAngle()
+        {
+            Angle = Angle == AngleMode.Degrees ? AngleMode.Radians
+                  : Angle == AngleMode.Radians ? AngleMode.Gradians
+                  : AngleMode.Degrees;
+        }
+
+        public string AngleLabel
+        {
+            get
+            {
+                switch (Angle)
+                {
+                    case AngleMode.Degrees: return "DEG";
+                    case AngleMode.Radians: return "RAD";
+                    default: return "GRAD";
+                }
+            }
+        }
+
         /// <summary>The expression exactly as typed, using "." as decimal point.</summary>
         public string Buffer { get { return buffer; } }
 

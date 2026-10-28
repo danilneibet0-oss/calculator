@@ -43,6 +43,7 @@ static class SciTests
                 case "/": e.Operator("÷"); break;
                 case "^": e.Operator("^"); break;
                 case "mod": e.Operator(" mod "); break;
+                case "angle": e.CycleAngle(); break;
                 case "neg": e.Negate(); break;
                 case "bs": e.Backspace(); break;
                 case "C": e.Clear(); break;
@@ -73,6 +74,21 @@ static class SciTests
         Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
         Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
+    static void AngleModes()
+    {
+        Eq("degrees by default", new SciEngine().AngleLabel, "DEG");
+        Eq("sin 90 degrees", K("sin 9 0 ) =").DisplayText, "1");
+        Eq("cycle to radians", K("angle").AngleLabel, "RAD");
+        Eq("cycle to gradians", K("angle angle").AngleLabel, "GRAD");
+        Eq("cycle back to degrees", K("angle angle angle").AngleLabel, "DEG");
+        CalcEngine.DecimalSeparator = ",";
+        Eq("sin 90 radians", K("angle sin 9 0 ) =").DisplayText, "0,893996663600558");
+        Eq("sin 100 gradians", K("angle angle sin 1 0 0 ) =").DisplayText, "1");
+        Eq("asin in radians", K("angle asin 1 ) =").DisplayText, "1,5707963267949");
+        Eq("changing the mode keeps the shown result", K("sin 9 0 ) = angle").DisplayText, "1");
+        Eq("mode applies to the next evaluation", K("sin 3 0 ) = angle C sin 3 0 ) =").DisplayText, "-0,988031624092862");
     }
 
     static void Negation()
@@ -261,6 +277,7 @@ static class SciTests
         AfterEquals();
         Backspace();
         Negation();
+        AngleModes();
         return failed;
     }
 }
