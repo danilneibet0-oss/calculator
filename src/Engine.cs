@@ -255,6 +255,12 @@ namespace Calculator
             return true;
         }
 
+        /// <summary>Adds an entry made elsewhere (the scientific mode) to the shared history.</summary>
+        public void Record(string expressionLine, string invariantResult)
+        {
+            AddHistory(expressionLine, invariantResult);
+        }
+
         public void RemoveHistory(HistoryItem item)
         {
             if (history.Remove(item)) HistoryVersion++;

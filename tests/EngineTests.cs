@@ -42,6 +42,25 @@ static class EngineTests
         return CalcEngine.TryParseNumber(text, out v) ? CalcEngine.Format(v) : "none";
     }
 
+    static void RecordTests()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        var e = new CalcEngine();
+        int v = e.HistoryVersion;
+        e.Record("sin(30) =", "0.5");
+        Check("record adds an entry", e.History.Count.ToString(), "1");
+        Check("record keeps the expression", e.History[0].Expression, "sin(30) =");
+        Check("record keeps the result", e.History[0].Result, "0.5");
+        Check("record shows the local separator", e.History[0].ResultText, "0,5");
+        Check("record bumps the version", (e.HistoryVersion > v).ToString(), "True");
+
+        e.Digit('2'); e.Operator('+'); e.Digit('3'); e.Evaluate();
+        Check("newest first across both sources", e.History[0].Result, "5");
+        e.Record("x =", "1e+20");
+        Check("exponent entry text is not grouped", e.History[0].ResultText, "1e+20");
+        Check("history is shared and capped like any other", e.History.Count.ToString(), "3");
+    }
+
     static void ModeSettingsTests()
     {
         var d = Settings.Parse(null);
@@ -296,6 +315,7 @@ static class EngineTests
         GroupTests();
         RecallTests();
         ModeSettingsTests();
+        RecordTests();
         failed += ExprTests.Run();
         failed += SciTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
