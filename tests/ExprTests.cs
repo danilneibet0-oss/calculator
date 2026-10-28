@@ -159,6 +159,34 @@ static class ExprTests
         Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
     }
 
+    static void Fmt(string name, double v, string expected)
+    {
+        string actual = Expr.Format(v);
+        if (actual == expected) return;
+        failed++;
+        Console.WriteLine("FAIL {0}: expected '{1}', got '{2}'", name, expected, actual);
+    }
+
+    static void Formatting()
+    {
+        Fmt("integer", 5, "5");
+        Fmt("fraction", 0.5, "0.5");
+        Fmt("binary noise removed", 0.1 + 0.2, "0.3");
+        Fmt("one third", 1.0 / 3, "0.333333333333333");
+        Fmt("pi", Math.PI, "3.14159265358979");
+        Fmt("negative", -2.5, "-2.5");
+        Fmt("negative zero", -0.0, "0");
+        Fmt("round number", 100000, "100000");
+        Fmt("largest plain integer", 999999999999999, "999999999999999");
+        Fmt("switches to exponent", 1e15, "1e+15");
+        Fmt("big", 1e20, "1e+20");
+        Fmt("long integer", 123456789012345678, "1.23456789012346e+17");
+        Fmt("small", 1.5e-7, "1.5e-7");
+        Fmt("tiny", 1e-5, "1e-5");
+        Fmt("four zeros", 0.0001, "0.0001");
+        Fmt("negative exponent keeps sign", -3e-9, "-3e-9");
+    }
+
     static void OverflowChecks()
     {
         string big = new string('9', 308);
@@ -325,6 +353,7 @@ static class ExprTests
         Logarithms();
         ImplicitMultiplication();
         OverflowChecks();
+        Formatting();
         return failed;
     }
 }

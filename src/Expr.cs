@@ -32,6 +32,17 @@ namespace Calculator
             return a / b;
         }
 
+        /// <summary>Formats a result with up to 15 significant digits: "0.3", "1e+20", "1.5e-7".</summary>
+        public static string Format(double v)
+        {
+            if (v == 0) return "0";   // also turns -0 into 0
+            string s = v.ToString("G15", CultureInfo.InvariantCulture);
+            int e = s.IndexOf('E');
+            if (e < 0) return s;
+            int exp = int.Parse(s.Substring(e + 1), CultureInfo.InvariantCulture);
+            return s.Substring(0, e) + "e" + (exp > 0 ? "+" : "") + exp.ToString(CultureInfo.InvariantCulture);
+        }
+
         /// <summary>Turns NaN and infinity into user-facing errors.</summary>
         static double Check(double v)
         {
