@@ -14,6 +14,8 @@ namespace Calculator
         public int Left, Top, Width, Height;
         public bool TopMost;
         public bool HistoryOpen;
+        public bool Scientific;
+        public AngleMode Angle = AngleMode.Degrees;
 
         public static string FilePath
         {
@@ -48,6 +50,10 @@ namespace Calculator
                     case "height": gotHeight = TryInt(val, out height); break;
                     case "topmost": s.TopMost = TryInt(val, out n) && n != 0; break;
                     case "historyopen": s.HistoryOpen = TryInt(val, out n) && n != 0; break;
+                    case "scientific": s.Scientific = TryInt(val, out n) && n != 0; break;
+                    case "angle":
+                        if (TryInt(val, out n) && Enum.IsDefined(typeof(AngleMode), n)) s.Angle = (AngleMode)n;
+                        break;
                 }
             }
 
@@ -73,6 +79,8 @@ namespace Calculator
             }
             sb.Append("topmost=").Append(TopMost ? '1' : '0').Append('\n');
             sb.Append("historyopen=").Append(HistoryOpen ? '1' : '0').Append('\n');
+            sb.Append("scientific=").Append(Scientific ? '1' : '0').Append('\n');
+            sb.Append("angle=").Append((int)Angle).Append('\n');
             return sb.ToString();
         }
 

@@ -42,6 +42,23 @@ static class EngineTests
         return CalcEngine.TryParseNumber(text, out v) ? CalcEngine.Format(v) : "none";
     }
 
+    static void ModeSettingsTests()
+    {
+        var d = Settings.Parse(null);
+        Check("default mode is standard", d.Scientific.ToString(), "False");
+        Check("default angle is degrees", d.Angle.ToString(), "Degrees");
+
+        var back = Settings.Parse(new Settings { Scientific = true, Angle = AngleMode.Gradians }.Serialize());
+        Check("scientific roundtrip", back.Scientific.ToString(), "True");
+        Check("angle roundtrip", back.Angle.ToString(), "Gradians");
+
+        Check("angle radians", Settings.Parse("angle=1\n").Angle.ToString(), "Radians");
+        Check("unknown angle falls back", Settings.Parse("angle=7\n").Angle.ToString(), "Degrees");
+        Check("negative angle falls back", Settings.Parse("angle=-1\n").Angle.ToString(), "Degrees");
+        Check("garbage angle falls back", Settings.Parse("angle=deg\n").Angle.ToString(), "Degrees");
+        Check("old files without the keys still load", Settings.Parse("topmost=1\nhistoryopen=0\n").Scientific.ToString(), "False");
+    }
+
     static void RecallTests()
     {
         CalcEngine.DecimalSeparator = ",";
@@ -278,6 +295,7 @@ static class EngineTests
         ClipboardTests();
         GroupTests();
         RecallTests();
+        ModeSettingsTests();
         failed += ExprTests.Run();
         failed += SciTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
