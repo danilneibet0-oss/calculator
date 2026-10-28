@@ -968,6 +968,12 @@ namespace Calculator
             else if (c == '%') k = "%";
             else if (c == '\b') k = "⌫";
             else if (c == (char)27) k = "C";
+            else if (scientific && c == '(') k = "(";
+            else if (scientific && c == ')') k = ")";
+            else if (scientific && c == '^') k = "xʸ";
+            else if (scientific && c == '!') k = "n!";
+            else if (scientific && (c == 'p' || c == 'P')) k = "π";
+            else if (scientific && (c == 'e' || c == 'E')) k = "e";
             if (k != null) { e.Handled = true; Press(k); }
             base.OnKeyPress(e);
         }
