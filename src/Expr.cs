@@ -200,11 +200,12 @@ namespace Calculator
                 throw new ExprException(SyntaxError);
             }
 
-            // Multiples of 90 degrees give exact results, so sin(180) is 0 rather than 1.2e-16.
-            static bool QuarterTurn(double degrees, out int quadrant)
+            // Quarter turns (90 degrees, 100 gradians) give exact results, so sin(180) is 0 rather than 1.2e-16.
+            bool QuarterTurn(double x, out int quadrant)
             {
                 quadrant = 0;
-                double q = degrees / 90;
+                if (angle == AngleMode.Radians) return false;
+                double q = x / (angle == AngleMode.Degrees ? 90 : 100);
                 if (q != Math.Floor(q)) return false;
                 double m = q % 4;
                 if (m < 0) m += 4;
@@ -214,18 +215,28 @@ namespace Calculator
 
             static double Tidy(double v) { return Math.Abs(v) < 1e-15 ? 0 : v; }
 
+            double ToRadians(double x)
+            {
+                switch (angle)
+                {
+                    case AngleMode.Degrees: return x * Math.PI / 180;
+                    case AngleMode.Gradians: return x * Math.PI / 200;
+                    default: return x;
+                }
+            }
+
             double Sin(double x)
             {
                 int k;
                 if (QuarterTurn(x, out k)) return new double[] { 0, 1, 0, -1 }[k];
-                return Tidy(Math.Sin(x * Math.PI / 180));
+                return Tidy(Math.Sin(ToRadians(x)));
             }
 
             double Cos(double x)
             {
                 int k;
                 if (QuarterTurn(x, out k)) return new double[] { 1, 0, -1, 0 }[k];
-                return Tidy(Math.Cos(x * Math.PI / 180));
+                return Tidy(Math.Cos(ToRadians(x)));
             }
 
             double Tan(double x)
@@ -236,7 +247,7 @@ namespace Calculator
                     if (k % 2 == 1) throw new ExprException(Invalid);   // tan(90) is undefined
                     return 0;
                 }
-                return Tidy(Math.Tan(x * Math.PI / 180));
+                return Tidy(Math.Tan(ToRadians(x)));
             }
 
             double ParseNumber()

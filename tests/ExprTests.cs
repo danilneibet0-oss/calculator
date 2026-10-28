@@ -131,6 +131,34 @@ static class ExprTests
         Err("unknown longer word", "foo", Expr.SyntaxError);
     }
 
+    static double ER(string text) { return Expr.Evaluate(text, AngleMode.Radians); }
+    static double EG(string text) { return Expr.Evaluate(text, AngleMode.Gradians); }
+
+    static void TrigRadiansAndGradians()
+    {
+        Eq("rad sin pi/2", ER("sin(π/2)"), 1);
+        Eq("rad sin pi is zero", ER("sin(π)"), 0);
+        Eq("rad sin 2pi is zero", ER("sin(2π)".Replace("2π", "2*π")), 0);
+        Eq("rad cos pi", ER("cos(π)"), -1);
+        Eq("rad cos pi/2 is zero", ER("cos(π/2)"), 0);
+        Eq("rad tan pi/4", ER("tan(π/4)"), 1);
+        Eq("rad sin 1", ER("sin(1)"), 0.8414709848078965);
+        Eq("rad cos 1", ER("cos(1)"), 0.5403023058681398);
+
+        Eq("grad sin 100", EG("sin(100)"), 1);
+        Eq("grad sin -100", EG("sin(-100)"), -1);
+        Eq("grad cos 200", EG("cos(200)"), -1);
+        Eq("grad cos 100 is exactly zero", EG("cos(100)"), 0);
+        Eq("grad tan 50", EG("tan(50)"), 1);
+        Eq("grad sin 50", EG("sin(50)"), 0.7071067811865476);
+        Eq("grad full turn", EG("sin(400)"), 0);
+        try { EG("tan(100)"); failed++; Console.WriteLine("FAIL grad tan 100 should be an error"); }
+        catch (ExprException) { }
+
+        // The same call gives different answers per mode.
+        Eq("deg sin 1", E("sin(1)"), 0.01745240643728351);
+    }
+
     static void TrigDegrees()
     {
         Eq("sin 30", E("sin(30)"), 0.5);
@@ -223,6 +251,7 @@ static class ExprTests
         Modulo();
         Roots();
         TrigDegrees();
+        TrigRadiansAndGradians();
         return failed;
     }
 }
