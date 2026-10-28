@@ -366,7 +366,7 @@ namespace Calculator
         readonly Panel historyHeader = new Panel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, pinToggle, modeToggle, memClear, memRecall;
+        CalcButton clearHistoryButton, historyToggle, pinToggle, modeToggle, memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
         TableLayoutPanel sciPanel;
         readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
@@ -514,6 +514,7 @@ namespace Calculator
                     string key = KeyLayout[r, c];
                     b.Click += delegate { Press(key); };
                     buttons.Add(b);
+                    if (key == "%") percentButton = b;
                     grid.Controls.Add(b, c, r);
                 }
             root.Controls.Add(grid, 0, 3);
@@ -697,6 +698,20 @@ namespace Calculator
             catch { }
         }
 
+        /// <summary>Keeps the captions in step with the mode: % becomes mod, 2nd swaps functions, DEG follows the unit.</summary>
+        void UpdateSciLabels()
+        {
+            percentButton.Text = scientific ? "mod" : "%";
+            sciButtons["sin"].Text = second ? "sin⁻¹" : "sin";
+            sciButtons["cos"].Text = second ? "cos⁻¹" : "cos";
+            sciButtons["tan"].Text = second ? "tan⁻¹" : "tan";
+            sciButtons["ln"].Text = second ? "eˣ" : "ln";
+            sciButtons["log"].Text = second ? "10ˣ" : "log";
+            sciButtons["DEG"].Text = sci.AngleLabel;
+            sciButtons["2nd"].Active = second;
+            sciButtons["2nd"].Invalidate();
+        }
+
         /// <summary>Switches between the standard and the scientific keypad; the window grows by the function panel.</summary>
         void SetScientific(bool on)
         {
@@ -712,6 +727,7 @@ namespace Calculator
             }
             modeToggle.Active = on;
             modeToggle.Invalidate();
+            UpdateSciLabels();
             Refresh_();
             ActiveControl = null;
         }
@@ -904,6 +920,7 @@ namespace Calculator
             if (scientific)
             {
                 PressSci(key);
+                if (key == "2nd" || key == "DEG") UpdateSciLabels();
                 Refresh_();
                 SyncHistory();
                 return;
