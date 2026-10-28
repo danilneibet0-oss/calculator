@@ -74,6 +74,26 @@ namespace Calculator
             buffer += op;
         }
 
+        /// <summary>True if the buffer ends with something a postfix sign like "!" can apply to.</summary>
+        bool EndsWithOperand()
+        {
+            if (buffer.Length == 0) return false;
+            char c = buffer[buffer.Length - 1];
+            return char.IsDigit(c) || c == ')' || c == 'π' || c == 'e' || c == '!';
+        }
+
+        /// <summary>Appends the constant "π" or "e".</summary>
+        public void Constant(string name)
+        {
+            if (name != "π" && name != "e") throw new ArgumentException("unknown constant " + name);
+            buffer += name;
+        }
+
+        public void Factorial()
+        {
+            if (EndsWithOperand()) buffer += "!";
+        }
+
         /// <summary>Number of "(" still waiting for their ")".</summary>
         int OpenCount()
         {

@@ -23,6 +23,9 @@ static class SciTests
             switch (key)
             {
                 case ".": e.Decimal(); break;
+                case "pi": e.Constant("π"); break;
+                case "e": e.Constant("e"); break;
+                case "!": e.Factorial(); break;
                 case "(": e.OpenParen(); break;
                 case ")": e.CloseParen(); break;
                 case "+": e.Operator("+"); break;
@@ -61,6 +64,22 @@ static class SciTests
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
     }
 
+    static void ConstantsAndFactorial()
+    {
+        Eq("pi", K("pi").Buffer, "π");
+        Eq("e", K("e").Buffer, "e");
+        Eq("number then pi", K("2 pi").Buffer, "2π");
+        Eq("pi then number", K("pi 2").Buffer, "π2");
+        Eq("factorial of a digit", K("5 !").Buffer, "5!");
+        Eq("factorial twice", K("3 ! !").Buffer, "3!!");
+        Eq("factorial of a group", K("( 3 ) !").Buffer, "(3)!");
+        Eq("factorial of a constant", K("e !").Buffer, "e!");
+        Eq("factorial needs an operand", K("!").Buffer, "");
+        Eq("factorial after operator", K("5 + !").Buffer, "5+");
+        Eq("factorial after open paren", K("( !").Buffer, "(");
+        Eq("factorial after point", K("5 . !").Buffer, "5.");
+    }
+
     static void Parentheses()
     {
         Eq("group", K("( 1 + 2 )").Buffer, "(1+2)");
@@ -97,6 +116,7 @@ static class SciTests
         DecimalPoint();
         Operators();
         Parentheses();
-        return failed;
+        ConstantsAndFactorial();
+    return failed;
     }
 }
