@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -912,7 +913,32 @@ namespace Calculator
                 case "∛x": sci.Function("∛"); break;
                 case "2nd": second = !second; break;
                 case "DEG": sci.CycleAngle(); break;
+                case "MC": engine.MemoryClear(); break;
+                case "MR":
+                    if (engine.HasMemory)
+                    {
+                        engine.MemoryRecall();   // the memory itself lives in the standard engine
+                        sci.Paste(engine.CopyText);
+                    }
+                    break;
+                case "MS": case "M+": case "M−": SciMemory(key); break;
             }
+        }
+
+        /// <summary>MS, M+ and M− in scientific mode work on the value of what has been typed so far.</summary>
+        void SciMemory(string key)
+        {
+            double value;
+            if (!sci.TryGetValue(out value)) return;
+            decimal number;
+            try { number = (decimal)value; }
+            catch (OverflowException) { return; }   // too large for the memory
+
+            engine.Clear();
+            engine.Paste(number.ToString(CultureInfo.InvariantCulture));
+            if (key == "MS") engine.MemoryStore();
+            else if (key == "M+") engine.MemoryAdd();
+            else engine.MemorySubtract();
         }
 
         void Press(string key)
