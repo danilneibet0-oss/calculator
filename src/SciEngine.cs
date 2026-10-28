@@ -8,11 +8,26 @@ namespace Calculator
         const int MaxDigits = 16;   // per number
 
         string buffer = "";
+        string expression = "";     // the line above the result, e.g. "1+2 ="
+        string resultText;          // formatted result while afterEquals
+        bool afterEquals;
+
+        public AngleMode Angle = AngleMode.Degrees;
 
         /// <summary>The expression exactly as typed, using "." as decimal point.</summary>
         public string Buffer { get { return buffer; } }
 
-        public string DisplayText { get { return buffer.Length == 0 ? "0" : Show(buffer); } }
+        /// <summary>The finished expression shown above the result.</summary>
+        public string Expression { get { return Show(expression); } }
+
+        public string DisplayText
+        {
+            get
+            {
+                if (afterEquals) return CalcEngine.Group(resultText);
+                return buffer.Length == 0 ? "0" : Show(buffer);
+            }
+        }
 
         static string Show(string s) { return s.Replace(".", CalcEngine.DecimalSeparator); }
 
@@ -151,9 +166,34 @@ namespace Calculator
             buffer += ")";
         }
 
+        /// <summary>Evaluates the buffer. A trailing operator is dropped and open parentheses are closed.</summary>
+        public void Evaluate()
+        {
+            if (buffer.Length == 0) return;
+            string text = buffer;
+            string trailing = TrailingOperator();
+            if (trailing != null) text = text.Substring(0, text.Length - trailing.Length);
+            text += new string(')', Math.Max(0, OpenCount()));
+
+            resultText = Expr.Format(Expr.Evaluate(text, Angle));
+            expression = text + " =";
+            buffer = ToBuffer(resultText);
+            afterEquals = true;
+        }
+
+        /// <summary>Turns a formatted result into text that can be typed on: "1.5e-7" becomes "1.5×10^(−7)".</summary>
+        static string ToBuffer(string formatted)
+        {
+            int e = formatted.IndexOf('e');
+            if (e >= 0) formatted = formatted.Substring(0, e) + "×10^(" + formatted.Substring(e + 1).TrimStart('+') + ")";
+            return formatted.Replace('-', '−');
+        }
+
         public void Clear()
         {
             buffer = "";
+            expression = "";
+            afterEquals = false;
         }
     }
 }

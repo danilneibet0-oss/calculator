@@ -22,6 +22,7 @@ static class SciTests
             if (key.Length == 1 && char.IsDigit(key[0])) { e.Digit(key[0]); continue; }
             switch (key)
             {
+                case "=": e.Evaluate(); break;
                 case ".": e.Decimal(); break;
                 case "sin": case "cos": case "tan": case "asin": case "acos": case "atan":
                 case "ln": case "log": case "exp": case "abs":
@@ -70,6 +71,30 @@ static class SciTests
         Eq("second point ignored", K("1 . 2 . 3").Buffer, "1.23");
         Eq("zero point zero", K("0 . 0 5").Buffer, "0.05");
         Eq("digit limit ignores the point", K("1 2 3 4 5 6 7 8 . 9 0 1 2 3 4 5 6 7").Buffer, "12345678.90123456");
+    }
+
+    static void Evaluation()
+    {
+        CalcEngine.DecimalSeparator = ",";
+        Eq("sum", K("1 + 2 =").DisplayText, "3");
+        Eq("expression line", K("1 + 2 =").Expression, "1+2 =");
+        Eq("open group is closed", K("( 1 + 2 =").DisplayText, "3");
+        Eq("open group in the expression line", K("( 1 + 2 =").Expression, "(1+2) =");
+        Eq("trailing operator dropped", K("5 + =").DisplayText, "5");
+        Eq("trailing operator in the expression line", K("5 + =").Expression, "5 =");
+        Eq("function", K("2 sin 3 0 =").DisplayText, "1");
+        Eq("function with open call", K("sin 3 0 =").DisplayText, "0,5");
+        Eq("binary noise removed", K("0 . 1 + 0 . 2 =").DisplayText, "0,3");
+        Eq("one third", K("1 / 3 =").DisplayText, "0,333333333333333");
+        Eq("third times three", K("1 / 3 * 3 =").DisplayText, "1");
+        Eq("implicit pi", K("2 pi =").DisplayText, "6,28318530717959");
+        Eq("negative result", K("3 - 5 =").DisplayText, "-2");
+        Eq("negative result buffer uses the minus sign", K("3 - 5 =").Buffer, "−2");
+        Eq("grouped", K("1 2 3 4 5 6 * 1 0 =").DisplayText, "12 345 600");
+        Eq("exponent display", K("1 2 3 4 5 6 7 * 1 0 0 0 0 0 0 0 0 0 0 0 =").DisplayText, "1,234567e+17");
+        Eq("exponent buffer can be typed on", K("1 2 3 4 5 6 7 * 1 0 0 0 0 0 0 0 0 0 0 0 =").Buffer, "1.234567×10^(17)");
+        Eq("small exponent buffer", K("1 / 8 0 0 0 0 0 0 0 =").Buffer, "1.25×10^(−8)");
+        Eq("equals on empty does nothing", K("=").DisplayText, "0");
     }
 
     static void Functions()
