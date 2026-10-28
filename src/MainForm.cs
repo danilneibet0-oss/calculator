@@ -447,6 +447,7 @@ namespace Calculator
             StartPosition = FormStartPosition.CenterScreen;
             settings = Settings.Load();
             TopMost = settings.TopMost;
+            sci.Angle = settings.Angle;
             KeyPreview = true;
             DoubleBuffered = true;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -748,6 +749,7 @@ namespace Calculator
             base.OnLoad(e);
             ApplySavedBounds();
             if (settings.HistoryOpen && !historyPanel.Visible) ToggleHistory();
+            if (settings.Scientific) SetScientific(true);
         }
 
         /// <summary>Restores the last window position and size, unless the position is no longer on any screen.</summary>
@@ -774,6 +776,8 @@ namespace Calculator
             bool normal = WindowState == FormWindowState.Normal;
             Rectangle b = normal ? Bounds : RestoreBounds;
             int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0);
+            // The window is stored without the function panel; it is added again when the mode is restored.
+            int sciExtra = normal && scientific ? (int)((TableLayoutPanel)sciPanel.Parent).RowStyles[2].Height : 0;
             float k = 96f / DeviceDpi;
             new Settings
             {
@@ -781,9 +785,11 @@ namespace Calculator
                 Left = b.Left,
                 Top = b.Top,
                 Width = (int)Math.Round(width * k),
-                Height = (int)Math.Round(b.Height * k),
+                Height = (int)Math.Round((b.Height - sciExtra) * k),
                 TopMost = TopMost,
-                HistoryOpen = historyPanel.Visible
+                HistoryOpen = historyPanel.Visible,
+                Scientific = scientific,
+                Angle = sci.Angle
             }.Save();
         }
 
