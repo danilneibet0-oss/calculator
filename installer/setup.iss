@@ -1,6 +1,6 @@
 ; Inno Setup script. Build with:  .\build-installer.ps1
 #define AppName "Калькулятор"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppExe "Calculator.exe"
 
 [Setup]

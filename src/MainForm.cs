@@ -102,8 +102,8 @@ namespace Calculator
             SetStyle(ControlStyles.UserPaint |
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
                      ControlStyles.StandardClick | ControlStyles.StandardDoubleClick, true);
-            SetStyle(ControlStyles.Selectable, false);
-            TabStop = false;
+            TabStop = true;
+            AccessibleRole = AccessibleRole.PushButton;
             Cursor = Cursors.Default;
         }
 
@@ -167,6 +167,11 @@ namespace Calculator
                 TextRenderer.DrawText(g, Text, f, ClientRectangle, fore,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
                     TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+
+            if (Focused && ShowFocusCues)
+                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, r - 2)))
+                using (var pen = new Pen(Kind == Kind.Equals ? Theme.EqText : Theme.EqNormal, 2f))
+                    g.DrawPath(pen, ring);
         }
 
         protected override void OnEnabledChanged(EventArgs e)
@@ -174,6 +179,27 @@ namespace Calculator
             hover = pressed = false;
             Invalidate();
             base.OnEnabledChanged(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+
+        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            AccessibleName = Text;
+            base.OnTextChanged(e);
+        }
+
+        /// <summary>Space and Enter press the focused button, as a standard Windows button does.</summary>
+        protected override void OnKeyPress(KeyPressEventArgs e)
+        {
+            if (e.KeyChar == ' ' || e.KeyChar == '\r')
+            {
+                e.Handled = true;
+                OnClick(EventArgs.Empty);
+            }
+            base.OnKeyPress(e);
         }
 
         static Color Blend(Color a, Color b, float t)
@@ -399,6 +425,21 @@ namespace Calculator
             { "ln", "log", "|x|", "∛x", "DEG" }
         };
 
+        /// <summary>Names that screen readers announce instead of the symbol on the key.</summary>
+        static readonly System.Collections.Generic.Dictionary<string, string> SpokenNames =
+            new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "%", "Процент" }, { "mod", "Остаток от деления" }, { "CE", "Очистить запись" }, { "C", "Очистить" },
+                { "⌫", "Стереть" }, { "1/x", "Обратное число" }, { "x²", "В квадрат" }, { "√x", "Квадратный корень" },
+                { "÷", "Разделить" }, { "×", "Умножить" }, { "−", "Минус" }, { "+", "Плюс" }, { "=", "Равно" },
+                { "±", "Сменить знак" }, { ",", "Запятая" }, { "MC", "Очистить память" }, { "MR", "Вызвать из памяти" },
+                { "M+", "Прибавить к памяти" }, { "M−", "Вычесть из памяти" }, { "MS", "Сохранить в память" },
+                { "π", "Пи" }, { "e", "Е" }, { "(", "Открыть скобку" }, { ")", "Закрыть скобку" },
+                { "sin", "Синус" }, { "cos", "Косинус" }, { "tan", "Тангенс" }, { "n!", "Факториал" },
+                { "xʸ", "Степень" }, { "ln", "Натуральный логарифм" }, { "log", "Десятичный логарифм" },
+                { "|x|", "Модуль" }, { "∛x", "Кубический корень" }, { "2nd", "Вторая функция" }, { "DEG", "Единицы углов" }
+            };
+
         /// <summary>The extra keys of scientific mode, shown above the keypad.</summary>
         TableLayoutPanel BuildSciPanel()
         {
@@ -567,6 +608,14 @@ namespace Calculator
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
             Controls.Add(historyPanel);
 
+            historyToggle.AccessibleName = "Журнал";
+            pinToggle.AccessibleName = "Поверх всех окон";
+            modeToggle.AccessibleName = "Инженерный режим";
+            foreach (CalcButton b in buttons)
+            {
+                string spoken;
+                if (SpokenNames.TryGetValue(b.Text, out spoken)) b.AccessibleName = spoken;
+            }
             ApplyTheme();
             SyncHistory();
             Refresh_();
@@ -997,7 +1046,7 @@ namespace Calculator
             else if (c == '-') k = "−";
             else if (c == '*') k = "×";
             else if (c == '/') k = "÷";
-            else if (c == '=' || c == '\r') k = "=";
+            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused))) k = "=";   // Enter presses a focused key instead
             else if (c == ',' || c == '.') k = ",";
             else if (c == '%') k = "%";
             else if (c == '\b') k = "⌫";
