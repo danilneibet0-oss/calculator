@@ -16,6 +16,7 @@ namespace Calculator
         public bool HistoryOpen;
         public bool Scientific;
         public AngleMode Angle = AngleMode.Degrees;
+        public bool AutoUpdate = true;
 
         public static string FilePath
         {
@@ -54,6 +55,7 @@ namespace Calculator
                     case "angle":
                         if (TryInt(val, out n) && Enum.IsDefined(typeof(AngleMode), n)) s.Angle = (AngleMode)n;
                         break;
+                    case "autoupdate": if (TryInt(val, out n)) s.AutoUpdate = n != 0; break;
                 }
             }
 
@@ -81,6 +83,7 @@ namespace Calculator
             sb.Append("historyopen=").Append(HistoryOpen ? '1' : '0').Append('\n');
             sb.Append("scientific=").Append(Scientific ? '1' : '0').Append('\n');
             sb.Append("angle=").Append((int)Angle).Append('\n');
+            sb.Append("autoupdate=").Append(AutoUpdate ? '1' : '0').Append('\n');
             return sb.ToString();
         }
 

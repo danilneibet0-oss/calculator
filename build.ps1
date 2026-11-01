@@ -14,7 +14,7 @@ $exe = Join-Path $outDir 'Calculator.exe'
 
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu /utf8output `
     "/out:$exe" "/win32icon:$icon" "/win32manifest:$(Join-Path $root 'src\app.manifest')" `
-    /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll `
+    /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Runtime.Serialization.dll `
     (Get-ChildItem (Join-Path $root 'src') -Filter *.cs | ForEach-Object FullName)
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 Write-Host ("OK: {0} ({1:N0} KB)" -f $exe, ((Get-Item $exe).Length / 1KB))

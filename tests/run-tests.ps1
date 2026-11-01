@@ -6,7 +6,7 @@ $exe = Join-Path $root 'build\tests.exe'
 $logic = Get-ChildItem (Join-Path $root 'src') -Filter *.cs |
     Where-Object { $_.Name -notin 'MainForm.cs', 'Program.cs' } | ForEach-Object FullName
 $tests = Get-ChildItem $PSScriptRoot -Filter *.cs | ForEach-Object FullName
-& $csc /nologo /utf8output "/out:$exe" $tests $logic
+& $csc /nologo /utf8output /r:System.Runtime.Serialization.dll "/out:$exe" $tests $logic
 if ($LASTEXITCODE -ne 0) { exit 1 }
 & $exe
 exit $LASTEXITCODE

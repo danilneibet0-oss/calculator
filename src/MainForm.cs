@@ -799,6 +799,7 @@ namespace Calculator
             ApplySavedBounds();
             if (settings.HistoryOpen && !historyPanel.Visible) ToggleHistory();
             if (settings.Scientific) SetScientific(true);
+            if (settings.AutoUpdate) Updater.CheckInBackground();
         }
 
         /// <summary>Restores the last window position and size, unless the position is no longer on any screen.</summary>
@@ -838,7 +839,8 @@ namespace Calculator
                 TopMost = TopMost,
                 HistoryOpen = historyPanel.Visible,
                 Scientific = scientific,
-                Angle = sci.Angle
+                Angle = sci.Angle,
+                AutoUpdate = settings.AutoUpdate
             }.Save();
         }
 
@@ -926,6 +928,7 @@ namespace Calculator
         {
             SystemEvents.UserPreferenceChanged -= OnPrefChanged;
             base.OnFormClosed(e);
+            Updater.InstallOnExit();
         }
 
         void Refresh_()
