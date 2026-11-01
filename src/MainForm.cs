@@ -239,6 +239,8 @@ namespace Calculator
         public Theme Theme;
         public string FontFamilyName = "Segoe UI";
         string expr = "", value = "0";
+        /// <summary>Space kept free at the right so the text does not run under the journal button.</summary>
+        public int RightInset;
         bool hasMemory;
 
         public DisplayBox()
@@ -271,7 +273,7 @@ namespace Calculator
             const TextFormatFlags flags = TextFormatFlags.Right | TextFormatFlags.NoPadding |
                                           TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
             int pad = Math.Max(8, Width / 28);
-            int avail = Width - pad * 2;
+            int avail = Width - pad * 2 - RightInset;
 
             float small = Math.Max(11f, Height * 0.13f);
             using (var f = new Font(FontFamilyName, small, FontStyle.Regular, GraphicsUnit.Pixel))
@@ -428,7 +430,7 @@ namespace Calculator
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
         readonly Panel navPanel = new Panel();
         readonly ScrollList navList = new ScrollList();
-        readonly Label navHeader = new Label(), navSection = new Label(), captionTitle = new Label();
+        readonly Label navHeader = new Label(), navSection = new Label(), navOther = new Label(), captionTitle = new Label();
         readonly Panel captionBar = new Panel();
         readonly PictureBox captionIcon = new PictureBox();
         CalcButton navToggle, plainButton, sciButton, minButton, maxButton, closeButton;
@@ -516,7 +518,7 @@ namespace Calculator
             AutoScaleMode = AutoScaleMode.Dpi;
             Padding = new Padding(6);   // the frame width, where the window can be resized
             ClientSize = new Size(352, 564);   // 340x520 content plus the padding and the custom caption bar
-            MinimumSize = new Size(312, 474);
+            MinimumSize = new Size(330, 474);
             StartPosition = FormStartPosition.CenterScreen;
             settings = Settings.Load();
             TopMost = settings.TopMost;
@@ -616,6 +618,7 @@ namespace Calculator
                 FontFamilyName = family
             };
             historyToggle.Click += delegate { ToggleHistory(); };
+            display.RightInset = historyToggle.Width + 6;
             display.Controls.Add(historyToggle);
             buttons.Add(historyToggle);
             tips.SetToolTip(historyToggle, "Журнал (Ctrl+H)");
@@ -782,6 +785,13 @@ namespace Calculator
                 NavItem(category.Name, delegate { ShowConverter(chosen); });
             }
 
+            navOther.Text = "Другое";
+            navOther.Size = new Size(176, 30);
+            navOther.TextAlign = ContentAlignment.BottomLeft;
+            navOther.Font = navSection.Font;
+            navOther.ForeColor = navSection.ForeColor;
+            navOther.Margin = new Padding(0, 10, 0, 0);
+            navList.Controls.Add(navOther);
             NavItem("Настройки…", delegate { ShowSettings(); });
             NavItem("О программе…", delegate { ShowAbout(); });
 
@@ -840,9 +850,9 @@ namespace Calculator
             captionTitle.Font = new Font(family, 12f, FontStyle.Regular, GraphicsUnit.Pixel);
             captionTitle.TextAlign = ContentAlignment.MiddleLeft;
             captionTitle.Location = new Point(32, 0);
-            captionTitle.Size = new Size(110, 32);
+            captionTitle.Size = new Size(92, 32);
 
-            pinToggle.Location = new Point(146, 0);
+            pinToggle.Location = new Point(128, 0);
             pinToggle.Size = new Size(40, 32);
 
             minButton = CaptionButton("\uE921", delegate { WindowState = FormWindowState.Minimized; });
