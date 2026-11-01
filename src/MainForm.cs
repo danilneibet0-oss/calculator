@@ -103,6 +103,8 @@ namespace Calculator
         public static string IconFont = "Segoe MDL2 Assets";
         /// <summary>Toggle buttons draw in the "on" state (pressed-in, accent text).</summary>
         public bool Active;
+        /// <summary>Menu items: text starts at the left edge instead of the centre.</summary>
+        public bool LeftAlign;
         bool hover, pressed;
 
         public CalcButton()
@@ -171,9 +173,12 @@ namespace Calculator
                 family = IconFont;
                 px *= 1.2f;
             }
+            Rectangle textRect = ClientRectangle;
+            TextFormatFlags align = TextFormatFlags.HorizontalCenter;
+            if (LeftAlign) { textRect = new Rectangle(14, 0, Width - 14, Height); align = TextFormatFlags.Left; }
             using (var f = new Font(family, px, style, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, Text, f, ClientRectangle, fore,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                TextRenderer.DrawText(g, Text, f, textRect, fore,
+                    align | TextFormatFlags.VerticalCenter |
                     TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
 
             if (Focused && ShowFocusCues)
@@ -275,7 +280,7 @@ namespace Calculator
 
             if (hasMemory)
                 using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(194 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
+                    TextRenderer.DrawText(g, "M", f, new Rectangle(pad, Height - (int)(small * 2.4f), (int)(small * 2f), (int)(small * 1.5f)),
                         Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
 
             float big = Math.Max(14f, Height * 0.42f);
@@ -410,9 +415,10 @@ namespace Calculator
         readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
-        readonly ContextMenuStrip navMenu = new ContextMenuStrip();
-        CalcButton navToggle;
-        ToolStripMenuItem plainItem, sciItem;
+        readonly Panel navPanel = new Panel();
+        readonly FlowLayoutPanel navList = new FlowLayoutPanel();
+        readonly Label navHeader = new Label(), navSection = new Label(), appTitle = new Label();
+        CalcButton navToggle, plainButton, sciButton;
         ConverterForm converter;
         HistoryItem historyMenuTarget;
         int shownHistoryVersion = -1;
@@ -582,10 +588,17 @@ namespace Calculator
                 Location = new Point(6, 8),
                 FontFamilyName = family
             };
-            navToggle.Click += delegate { navMenu.Show(navToggle, new Point(0, navToggle.Height)); };
+            navToggle.Click += delegate { ToggleNav(); };
             display.Controls.Add(navToggle);
             buttons.Add(navToggle);
             tips.SetToolTip(navToggle, "Меню");
+
+            appTitle.Text = "Калькулятор";
+            appTitle.Location = new Point(50, 8);
+            appTitle.Size = new Size(116, 34);
+            appTitle.TextAlign = ContentAlignment.MiddleLeft;
+            appTitle.Font = new Font(family, 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+            display.Controls.Add(appTitle);
 
             historyToggle = new CalcButton
             {
@@ -605,7 +618,7 @@ namespace Calculator
                 Text = "",
                 Kind = Kind.Function,
                 Size = new Size(40, 34),
-                Location = new Point(94, 8),
+                Location = new Point(170, 8),
                 FontFamilyName = family,
                 Active = TopMost
             };
@@ -629,10 +642,13 @@ namespace Calculator
 
             BuildHistoryPanel();
             BuildMenus();
-            BuildNavMenu();
+            BuildNavPanel();
+            display.Resize += delegate { LayoutTopRow(); };
+            LayoutTopRow();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
             Controls.Add(historyPanel);
+            Controls.Add(navPanel);
 
             historyToggle.AccessibleName = "Журнал";
             pinToggle.AccessibleName = "Поверх всех окон";
@@ -740,38 +756,94 @@ namespace Calculator
             historyList.ContextMenuStrip = historyMenu;
         }
 
-        void BuildNavMenu()
+        /// <summary>The menu opens from the left edge like the history panel does from the right.</summary>
+        void BuildNavPanel()
         {
-            plainItem = new ToolStripMenuItem("Обычный") { ShortcutKeyDisplayString = "Ctrl+1" };
-            sciItem = new ToolStripMenuItem("Инженерный") { ShortcutKeyDisplayString = "Ctrl+2" };
-            plainItem.Click += delegate { SetScientific(false); };
-            sciItem.Click += delegate { SetScientific(true); };
+            navPanel.Dock = DockStyle.Left;
+            navPanel.Width = 220;
+            navPanel.Padding = new Padding(4, 0, 4, 4);
+            navPanel.Visible = false;
 
-            var convert = new ToolStripMenuItem("Конвертер единиц");
+            navList.Dock = DockStyle.Fill;
+            navList.FlowDirection = FlowDirection.TopDown;
+            navList.WrapContents = false;
+            navList.AutoScroll = true;
+            navList.Padding = new Padding(0, 4, 0, 0);
+
+            navHeader.Text = "Меню";
+            navHeader.Dock = DockStyle.Top;
+            navHeader.Height = 50;
+            navHeader.TextAlign = ContentAlignment.MiddleLeft;
+            navHeader.Padding = new Padding(8, 0, 0, 0);
+            navHeader.Font = new Font(family, 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+
+            plainButton = NavItem("Обычный режим", delegate { SetScientific(false); });
+            sciButton = NavItem("Инженерный режим", delegate { SetScientific(true); });
+
+            navSection.Text = "Конвертер единиц";
+            navSection.Size = new Size(196, 30);
+            navSection.TextAlign = ContentAlignment.BottomLeft;
+            navSection.Font = new Font(family, 12f, FontStyle.Regular, GraphicsUnit.Pixel);
+            navSection.Margin = new Padding(0, 10, 0, 0);
+            navList.Controls.Add(navSection);
             foreach (UnitCategory category in Units.Categories)
             {
                 UnitCategory chosen = category;
-                var item = new ToolStripMenuItem(category.Name);
-                item.Click += delegate { ShowConverter(chosen); };
-                convert.DropDownItems.Add(item);
+                NavItem(category.Name, delegate { ShowConverter(chosen); });
             }
 
-            var settingsItem = new ToolStripMenuItem("Настройки…");
-            settingsItem.Click += delegate { ShowSettings(); };
-            var aboutItem = new ToolStripMenuItem("О программе…");
-            aboutItem.Click += delegate { ShowAbout(); };
+            NavItem("Настройки…", delegate { ShowSettings(); });
+            NavItem("О программе…", delegate { ShowAbout(); });
 
-            navMenu.Items.AddRange(new ToolStripItem[]
+            navPanel.Controls.Add(navList);
+            navPanel.Controls.Add(navHeader);
+            UpdateNavState();
+        }
+
+        CalcButton NavItem(string text, EventHandler onClick)
+        {
+            var b = new CalcButton
             {
-                plainItem, sciItem, new ToolStripSeparator(),
-                convert, new ToolStripSeparator(),
-                settingsItem, aboutItem
-            });
-            navMenu.Opening += delegate
-            {
-                plainItem.Checked = !scientific;
-                sciItem.Checked = scientific;
+                Text = text,
+                Kind = Kind.Function,
+                LeftAlign = true,
+                Size = new Size(196, 36),
+                Margin = new Padding(0, 2, 0, 2),
+                FontFamilyName = family
             };
+            b.Click += onClick;
+            buttons.Add(b);
+            navList.Controls.Add(b);
+            return b;
+        }
+
+        void ToggleNav()
+        {
+            bool show = !navPanel.Visible;
+            int w = navPanel.Width;
+            if (WindowState == FormWindowState.Normal)
+            {
+                int target = Width + (show ? w : -w);
+                MinimumSize = new Size(MinimumSize.Width + (show ? w : -w), MinimumSize.Height);
+                Width = target;
+            }
+            navPanel.Visible = show;
+            ActiveControl = null;
+        }
+
+        void UpdateNavState()
+        {
+            plainButton.Active = !scientific;
+            sciButton.Active = scientific;
+            plainButton.Invalidate();
+            sciButton.Invalidate();
+        }
+
+        /// <summary>Title, pin on the left next to it, journal and mode on the right; all share one row.</summary>
+        void LayoutTopRow()
+        {
+            modeToggle.Left = display.Width - modeToggle.Width - 6;
+            historyToggle.Left = modeToggle.Left - historyToggle.Width - 4;
         }
 
         void ShowConverter(UnitCategory category)
@@ -872,6 +944,7 @@ namespace Calculator
                 MinimumSize = new Size(MinimumSize.Width, MinimumSize.Height + (on ? delta : -delta));
                 Height += on ? delta : -delta;
             }
+            UpdateNavState();
             modeToggle.Active = on;
             modeToggle.Invalidate();
             UpdateSciLabels();
@@ -919,7 +992,7 @@ namespace Calculator
             base.OnFormClosing(e);
             bool normal = WindowState == FormWindowState.Normal;
             Rectangle b = normal ? Bounds : RestoreBounds;
-            int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0);
+            int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0) - (normal && navPanel.Visible ? navPanel.Width : 0);
             // The window is stored without the function panel; it is added again when the mode is restored.
             int sciExtra = normal && scientific ? (int)((TableLayoutPanel)sciPanel.Parent).RowStyles[2].Height : 0;
             float k = 96f / DeviceDpi;
@@ -1001,7 +1074,14 @@ namespace Calculator
             historyList.BackColor = theme.Back;
             ApplyMenuTheme(displayMenu);
             ApplyMenuTheme(historyMenu);
-            ApplyMenuTheme(navMenu);
+            navPanel.BackColor = theme.Back;
+            navList.BackColor = theme.Back;
+            navHeader.BackColor = theme.Back;
+            navHeader.ForeColor = theme.Text;
+            navSection.BackColor = theme.Back;
+            navSection.ForeColor = theme.Dim;
+            appTitle.BackColor = theme.Back;
+            appTitle.ForeColor = theme.Text;
             if (historyList.IsHandleCreated) ApplyListTheme();
             historyList.Invalidate();
             if (IsHandleCreated) SetDarkTitle();
