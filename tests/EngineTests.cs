@@ -186,6 +186,10 @@ static class EngineTests
 
         Check("settings garbage ignored", Settings.Parse("left=abc\r\nwidth=\r\n???\r\ntopmost=1\r\n").TopMost.ToString(), "True");
         Check("settings tiny window rejected", Settings.Parse("left=0\ntop=0\nwidth=10\nheight=10\n").HasBounds.ToString(), "False");
+        Check("settings theme default", Settings.Parse(null).ThemeMode.ToString(), "0");
+        Check("settings theme roundtrip", Settings.Parse(new Settings { ThemeMode = 2 }.Serialize()).ThemeMode.ToString(), "2");
+        Check("settings theme out of range ignored", Settings.Parse("theme=7\n").ThemeMode.ToString(), "0");
+        Check("settings autoupdate roundtrip", Settings.Parse(new Settings { AutoUpdate = false }.Serialize()).AutoUpdate.ToString(), "False");
         Check("settings huge window rejected", Settings.Parse("left=0\ntop=0\nwidth=99999\nheight=500\n").HasBounds.ToString(), "False");
         Check("settings partial bounds rejected", Settings.Parse("left=0\ntop=0\nwidth=300\n").HasBounds.ToString(), "False");
         Check("settings CRLF", Settings.Parse("left=5\r\ntop=6\r\nwidth=300\r\nheight=400\r\n").Top.ToString(), "6");
@@ -319,6 +323,7 @@ static class EngineTests
         failed += ExprTests.Run();
         failed += SciTests.Run();
         failed += UpdaterTests.Run();
+        failed += UnitsTests.Run();
         Console.WriteLine(failed == 0 ? "All tests passed" : failed + " failed");
         return failed == 0 ? 0 : 1;
     }

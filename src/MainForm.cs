@@ -45,6 +45,14 @@ namespace Calculator
             };
         }
 
+        /// <summary>0 follows Windows, 1 is always light, 2 is always dark.</summary>
+        public static Theme ForMode(int mode)
+        {
+            if (mode == 1) return Light();
+            if (mode == 2) return Dark_();
+            return FromSystem();
+        }
+
         public static Theme FromSystem()
         {
             try
@@ -267,7 +275,7 @@ namespace Calculator
 
             if (hasMemory)
                 using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(150 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
+                    TextRenderer.DrawText(g, "M", f, new Rectangle((int)(194 * DeviceDpi / 96f), Height / 10, (int)(small * 2f), (int)(small * 1.5f)),
                         Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
 
             float big = Math.Max(14f, Height * 0.42f);
@@ -402,6 +410,10 @@ namespace Calculator
         readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
+        readonly ContextMenuStrip navMenu = new ContextMenuStrip();
+        CalcButton navToggle;
+        ToolStripMenuItem plainItem, sciItem;
+        ConverterForm converter;
         HistoryItem historyMenuTarget;
         int shownHistoryVersion = -1;
         readonly System.Collections.Generic.List<CalcButton> buttons = new System.Collections.Generic.List<CalcButton>();
@@ -562,12 +574,25 @@ namespace Calculator
                 }
             root.Controls.Add(grid, 0, 3);
 
+            navToggle = new CalcButton
+            {
+                Text = "\uE700",
+                Kind = Kind.Function,
+                Size = new Size(40, 34),
+                Location = new Point(6, 8),
+                FontFamilyName = family
+            };
+            navToggle.Click += delegate { navMenu.Show(navToggle, new Point(0, navToggle.Height)); };
+            display.Controls.Add(navToggle);
+            buttons.Add(navToggle);
+            tips.SetToolTip(navToggle, "Меню");
+
             historyToggle = new CalcButton
             {
                 Text = "",
                 Kind = Kind.Function,
                 Size = new Size(40, 34),
-                Location = new Point(6, 8),
+                Location = new Point(50, 8),
                 FontFamilyName = family
             };
             historyToggle.Click += delegate { ToggleHistory(); };
@@ -580,7 +605,7 @@ namespace Calculator
                 Text = "",
                 Kind = Kind.Function,
                 Size = new Size(40, 34),
-                Location = new Point(50, 8),
+                Location = new Point(94, 8),
                 FontFamilyName = family,
                 Active = TopMost
             };
@@ -594,7 +619,7 @@ namespace Calculator
                 Text = "f(x)",
                 Kind = Kind.Function,
                 Size = new Size(48, 34),
-                Location = new Point(94, 8),
+                Location = new Point(138, 8),
                 FontFamilyName = family
             };
             modeToggle.Click += delegate { SetScientific(!scientific); };
@@ -604,6 +629,7 @@ namespace Calculator
 
             BuildHistoryPanel();
             BuildMenus();
+            BuildNavMenu();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
             Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
             Controls.Add(historyPanel);
@@ -714,13 +740,81 @@ namespace Calculator
             historyList.ContextMenuStrip = historyMenu;
         }
 
+        void BuildNavMenu()
+        {
+            plainItem = new ToolStripMenuItem("Обычный") { ShortcutKeyDisplayString = "Ctrl+1" };
+            sciItem = new ToolStripMenuItem("Инженерный") { ShortcutKeyDisplayString = "Ctrl+2" };
+            plainItem.Click += delegate { SetScientific(false); };
+            sciItem.Click += delegate { SetScientific(true); };
+
+            var convert = new ToolStripMenuItem("Конвертер единиц");
+            foreach (UnitCategory category in Units.Categories)
+            {
+                UnitCategory chosen = category;
+                var item = new ToolStripMenuItem(category.Name);
+                item.Click += delegate { ShowConverter(chosen); };
+                convert.DropDownItems.Add(item);
+            }
+
+            var settingsItem = new ToolStripMenuItem("Настройки…");
+            settingsItem.Click += delegate { ShowSettings(); };
+            var aboutItem = new ToolStripMenuItem("О программе…");
+            aboutItem.Click += delegate { ShowAbout(); };
+
+            navMenu.Items.AddRange(new ToolStripItem[]
+            {
+                plainItem, sciItem, new ToolStripSeparator(),
+                convert, new ToolStripSeparator(),
+                settingsItem, aboutItem
+            });
+            navMenu.Opening += delegate
+            {
+                plainItem.Checked = !scientific;
+                sciItem.Checked = scientific;
+            };
+        }
+
+        void ShowConverter(UnitCategory category)
+        {
+            if (converter == null || converter.IsDisposed) converter = new ConverterForm(theme, family);
+            converter.SelectCategory(category);
+            converter.Show(this);
+            converter.BringToFront();
+        }
+
+        void ShowSettings()
+        {
+            using (var dialog = new SettingsForm(settings, theme, family))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                settings.ThemeMode = dialog.ThemeMode;
+                settings.AutoUpdate = dialog.AutoUpdate;
+                ApplyTheme();
+            }
+        }
+
+        void ShowAbout()
+        {
+            using (var dialog = new AboutForm(theme, family))
+                dialog.ShowDialog(this);
+        }
+
         void ApplyMenuTheme(ContextMenuStrip menu)
         {
             menu.Renderer = new ToolStripProfessionalRenderer(new ThemedColors(theme)) { RoundedEdges = false };
             menu.Font = new Font(family, 14f, FontStyle.Regular, GraphicsUnit.Pixel);
             menu.BackColor = theme.Dark ? Color.FromArgb(0x2C, 0x2C, 0x2C) : Color.FromArgb(0xFC, 0xFC, 0xFC);
             menu.ForeColor = theme.Text;
-            foreach (ToolStripItem item in menu.Items) item.ForeColor = theme.Text;
+            foreach (ToolStripItem item in menu.Items)
+            {
+                item.ForeColor = theme.Text;
+                var parent = item as ToolStripDropDownItem;
+                if (parent == null) continue;
+                parent.DropDown.Renderer = menu.Renderer;
+                parent.DropDown.BackColor = menu.BackColor;
+                parent.DropDown.Font = menu.Font;
+                foreach (ToolStripItem sub in parent.DropDownItems) sub.ForeColor = theme.Text;
+            }
         }
 
         static void SetClipboard(string text)
@@ -840,7 +934,8 @@ namespace Calculator
                 HistoryOpen = historyPanel.Visible,
                 Scientific = scientific,
                 Angle = sci.Angle,
-                AutoUpdate = settings.AutoUpdate
+                AutoUpdate = settings.AutoUpdate,
+                ThemeMode = settings.ThemeMode
             }.Save();
         }
 
@@ -894,7 +989,7 @@ namespace Calculator
 
         void ApplyTheme()
         {
-            theme = Theme.FromSystem();
+            theme = Theme.ForMode(settings.ThemeMode);
             BackColor = theme.Back;
             display.Theme = theme;
             foreach (CalcButton b in buttons) b.Theme = theme;
@@ -906,6 +1001,7 @@ namespace Calculator
             historyList.BackColor = theme.Back;
             ApplyMenuTheme(displayMenu);
             ApplyMenuTheme(historyMenu);
+            ApplyMenuTheme(navMenu);
             if (historyList.IsHandleCreated) ApplyListTheme();
             historyList.Invalidate();
             if (IsHandleCreated) SetDarkTitle();

@@ -17,6 +17,8 @@ namespace Calculator
         public bool Scientific;
         public AngleMode Angle = AngleMode.Degrees;
         public bool AutoUpdate = true;
+        /// <summary>0 = follow Windows, 1 = light, 2 = dark.</summary>
+        public int ThemeMode;
 
         public static string FilePath
         {
@@ -56,6 +58,7 @@ namespace Calculator
                         if (TryInt(val, out n) && Enum.IsDefined(typeof(AngleMode), n)) s.Angle = (AngleMode)n;
                         break;
                     case "autoupdate": if (TryInt(val, out n)) s.AutoUpdate = n != 0; break;
+                    case "theme": if (TryInt(val, out n) && n >= 0 && n <= 2) s.ThemeMode = n; break;
                 }
             }
 
@@ -84,6 +87,7 @@ namespace Calculator
             sb.Append("scientific=").Append(Scientific ? '1' : '0').Append('\n');
             sb.Append("angle=").Append((int)Angle).Append('\n');
             sb.Append("autoupdate=").Append(AutoUpdate ? '1' : '0').Append('\n');
+            sb.Append("theme=").Append(ThemeMode).Append('\n');
             return sb.ToString();
         }
 
