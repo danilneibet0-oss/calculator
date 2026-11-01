@@ -397,6 +397,17 @@ namespace Calculator
         [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
         static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
 
+        [DllImport("user32.dll")]
+        static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1;
+        const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
+        const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
+        const int ResizeBorder = 6;
+
         readonly CalcEngine engine = new CalcEngine();
         readonly SciEngine sci = new SciEngine();
         bool scientific;   // which engine the keys go to
@@ -406,7 +417,7 @@ namespace Calculator
         readonly Panel historyHeader = new Panel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, pinToggle, modeToggle, memClear, memRecall, percentButton;
+        CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
         TableLayoutPanel sciPanel;
         readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
@@ -416,9 +427,11 @@ namespace Calculator
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
         readonly Panel navPanel = new Panel();
-        readonly FlowLayoutPanel navList = new FlowLayoutPanel();
-        readonly Label navHeader = new Label(), navSection = new Label(), appTitle = new Label();
-        CalcButton navToggle, plainButton, sciButton;
+        readonly ScrollList navList = new ScrollList();
+        readonly Label navHeader = new Label(), navSection = new Label(), captionTitle = new Label();
+        readonly Panel captionBar = new Panel();
+        readonly PictureBox captionIcon = new PictureBox();
+        CalcButton navToggle, plainButton, sciButton, minButton, maxButton, closeButton;
         ConverterForm converter;
         HistoryItem historyMenuTarget;
         int shownHistoryVersion = -1;
@@ -501,8 +514,9 @@ namespace Calculator
             Text = "Калькулятор";
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(340, 520);
-            MinimumSize = new Size(300, 430);
+            Padding = new Padding(6);   // the frame width, where the window can be resized
+            ClientSize = new Size(352, 564);   // 340x520 content plus the padding and the custom caption bar
+            MinimumSize = new Size(312, 474);
             StartPosition = FormStartPosition.CenterScreen;
             settings = Settings.Load();
             TopMost = settings.TopMost;
@@ -593,13 +607,6 @@ namespace Calculator
             buttons.Add(navToggle);
             tips.SetToolTip(navToggle, "Меню");
 
-            appTitle.Text = "Калькулятор";
-            appTitle.Location = new Point(50, 8);
-            appTitle.Size = new Size(116, 34);
-            appTitle.TextAlign = ContentAlignment.MiddleLeft;
-            appTitle.Font = new Font(family, 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-            display.Controls.Add(appTitle);
-
             historyToggle = new CalcButton
             {
                 Text = "",
@@ -623,36 +630,23 @@ namespace Calculator
                 Active = TopMost
             };
             pinToggle.Click += delegate { ToggleTopMost(); };
-            display.Controls.Add(pinToggle);
             buttons.Add(pinToggle);
             tips.SetToolTip(pinToggle, "Поверх всех окон (Ctrl+T)");
-
-            modeToggle = new CalcButton
-            {
-                Text = "f(x)",
-                Kind = Kind.Function,
-                Size = new Size(48, 34),
-                Location = new Point(138, 8),
-                FontFamilyName = family
-            };
-            modeToggle.Click += delegate { SetScientific(!scientific); };
-            display.Controls.Add(modeToggle);
-            buttons.Add(modeToggle);
-            tips.SetToolTip(modeToggle, "Инженерный режим (Ctrl+2), обычный (Ctrl+1)");
 
             BuildHistoryPanel();
             BuildMenus();
             BuildNavPanel();
+            BuildCaption();
             display.Resize += delegate { LayoutTopRow(); };
             LayoutTopRow();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
-            Controls.Add(root);            // Fill goes first so the right-docked panel claims its space before it
+            Controls.Add(root);            // Fill goes first so the docked panels claim their space before it
             Controls.Add(historyPanel);
             Controls.Add(navPanel);
+            Controls.Add(captionBar);      // added last, so the caption takes the top edge first
 
             historyToggle.AccessibleName = "Журнал";
             pinToggle.AccessibleName = "Поверх всех окон";
-            modeToggle.AccessibleName = "Инженерный режим";
             foreach (CalcButton b in buttons)
             {
                 string spoken;
@@ -765,10 +759,6 @@ namespace Calculator
             navPanel.Visible = false;
 
             navList.Dock = DockStyle.Fill;
-            navList.FlowDirection = FlowDirection.TopDown;
-            navList.WrapContents = false;
-            navList.AutoScroll = true;
-            navList.Padding = new Padding(0, 4, 0, 0);
 
             navHeader.Text = "Меню";
             navHeader.Dock = DockStyle.Top;
@@ -781,7 +771,7 @@ namespace Calculator
             sciButton = NavItem("Инженерный режим", delegate { SetScientific(true); });
 
             navSection.Text = "Конвертер единиц";
-            navSection.Size = new Size(196, 30);
+            navSection.Size = new Size(176, 30);
             navSection.TextAlign = ContentAlignment.BottomLeft;
             navSection.Font = new Font(family, 12f, FontStyle.Regular, GraphicsUnit.Pixel);
             navSection.Margin = new Padding(0, 10, 0, 0);
@@ -807,7 +797,7 @@ namespace Calculator
                 Text = text,
                 Kind = Kind.Function,
                 LeftAlign = true,
-                Size = new Size(196, 36),
+                Size = new Size(176, 36),
                 Margin = new Padding(0, 2, 0, 2),
                 FontFamilyName = family
             };
@@ -817,18 +807,119 @@ namespace Calculator
             return b;
         }
 
+        /// <summary>The window grows to the left, so the calculator and the menu button stay where they were.</summary>
         void ToggleNav()
         {
             bool show = !navPanel.Visible;
             int w = navPanel.Width;
             if (WindowState == FormWindowState.Normal)
             {
-                int target = Width + (show ? w : -w);
-                MinimumSize = new Size(MinimumSize.Width + (show ? w : -w), MinimumSize.Height);
-                Width = target;
+                // Setting MinimumSize resizes the window at once, so the order depends on the direction.
+                int delta = show ? w : -w;
+                var target = new Rectangle(Left - delta, Top, Width + delta, Height);
+                var minimum = new Size(MinimumSize.Width + delta, MinimumSize.Height);
+                if (show) { Bounds = target; MinimumSize = minimum; }
+                else { MinimumSize = minimum; Bounds = target; }
             }
             navPanel.Visible = show;
             ActiveControl = null;
+        }
+
+        /// <summary>Own title bar: icon, name, pin, then minimize, maximize and close. The window keeps its frame for resizing.</summary>
+        void BuildCaption()
+        {
+            captionBar.Dock = DockStyle.Top;
+            captionBar.Height = 32;
+
+            if (Icon != null) captionIcon.Image = Icon.ToBitmap();
+            captionIcon.SizeMode = PictureBoxSizeMode.Zoom;
+            captionIcon.Size = new Size(16, 16);
+            captionIcon.Location = new Point(10, 8);
+
+            captionTitle.Text = "Калькулятор";
+            captionTitle.Font = new Font(family, 12f, FontStyle.Regular, GraphicsUnit.Pixel);
+            captionTitle.TextAlign = ContentAlignment.MiddleLeft;
+            captionTitle.Location = new Point(32, 0);
+            captionTitle.Size = new Size(110, 32);
+
+            pinToggle.Location = new Point(146, 0);
+            pinToggle.Size = new Size(40, 32);
+
+            minButton = CaptionButton("\uE921", delegate { WindowState = FormWindowState.Minimized; });
+            maxButton = CaptionButton("\uE922", delegate { ToggleMaximize(); });
+            closeButton = CaptionButton("\uE8BB", delegate { Close(); });
+
+            captionBar.Controls.AddRange(new Control[] { captionIcon, captionTitle, pinToggle, minButton, maxButton, closeButton });
+            captionBar.Resize += delegate { LayoutCaption(); };
+            Resize += delegate { maxButton.Text = WindowState == FormWindowState.Maximized ? "\uE923" : "\uE922"; };
+            foreach (Control c in new Control[] { captionBar, captionIcon, captionTitle })
+            {
+                c.MouseDown += DragCaption;
+                c.DoubleClick += delegate { ToggleMaximize(); };
+            }
+            LayoutCaption();
+        }
+
+        CalcButton CaptionButton(string icon, EventHandler onClick)
+        {
+            var b = new CalcButton { Text = icon, Kind = Kind.Function, Size = new Size(46, 32), FontFamilyName = family };
+            b.Click += onClick;
+            buttons.Add(b);
+            return b;
+        }
+
+        void LayoutCaption()
+        {
+            closeButton.Location = new Point(captionBar.Width - 46, 0);
+            maxButton.Location = new Point(closeButton.Left - 46, 0);
+            minButton.Location = new Point(maxButton.Left - 46, 0);
+        }
+
+        void DragCaption(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture();
+            SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+        }
+
+        void ToggleMaximize()
+        {
+            WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            // Removing the caption: the client area takes the whole window, the frame remains for resizing.
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    Size frame = SystemInformation.FrameBorderSize;
+                    Marshal.WriteInt32(m.LParam, 0, Marshal.ReadInt32(m.LParam, 0) + frame.Width);
+                    Marshal.WriteInt32(m.LParam, 4, Marshal.ReadInt32(m.LParam, 4) + frame.Height);
+                    Marshal.WriteInt32(m.LParam, 8, Marshal.ReadInt32(m.LParam, 8) - frame.Width);
+                    Marshal.WriteInt32(m.LParam, 12, Marshal.ReadInt32(m.LParam, 12) - frame.Height);
+                }
+                m.Result = IntPtr.Zero;
+                return;
+            }
+
+            base.WndProc(ref m);
+
+            if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
+            {
+                Point p = PointToClient(Cursor.Position);
+                bool left = p.X < ResizeBorder, right = p.X >= ClientSize.Width - ResizeBorder;
+                bool top = p.Y < ResizeBorder, bottom = p.Y >= ClientSize.Height - ResizeBorder;
+                if (top && left) m.Result = (IntPtr)HTTOPLEFT;
+                else if (top && right) m.Result = (IntPtr)HTTOPRIGHT;
+                else if (bottom && left) m.Result = (IntPtr)HTBOTTOMLEFT;
+                else if (bottom && right) m.Result = (IntPtr)HTBOTTOMRIGHT;
+                else if (left) m.Result = (IntPtr)HTLEFT;
+                else if (right) m.Result = (IntPtr)HTRIGHT;
+                else if (top) m.Result = (IntPtr)HTTOP;
+                else if (bottom) m.Result = (IntPtr)HTBOTTOM;
+            }
         }
 
         void UpdateNavState()
@@ -839,11 +930,10 @@ namespace Calculator
             sciButton.Invalidate();
         }
 
-        /// <summary>Title, pin on the left next to it, journal and mode on the right; all share one row.</summary>
+        /// <summary>The journal button sits at the right edge of the top row; the menu button at the left.</summary>
         void LayoutTopRow()
         {
-            modeToggle.Left = display.Width - modeToggle.Width - 6;
-            historyToggle.Left = modeToggle.Left - historyToggle.Width - 4;
+            historyToggle.Left = display.Width - historyToggle.Width - 6;
         }
 
         void ShowConverter(UnitCategory category)
@@ -945,8 +1035,6 @@ namespace Calculator
                 Height += on ? delta : -delta;
             }
             UpdateNavState();
-            modeToggle.Active = on;
-            modeToggle.Invalidate();
             UpdateSciLabels();
             Refresh_();
             ActiveControl = null;
@@ -1080,8 +1168,11 @@ namespace Calculator
             navHeader.ForeColor = theme.Text;
             navSection.BackColor = theme.Back;
             navSection.ForeColor = theme.Dim;
-            appTitle.BackColor = theme.Back;
-            appTitle.ForeColor = theme.Text;
+            captionBar.BackColor = theme.Back;
+            captionTitle.BackColor = theme.Back;
+            captionTitle.ForeColor = theme.Text;
+            navList.ThumbColor = theme.Dark ? Color.FromArgb(0x4D, 0x4D, 0x4D) : Color.FromArgb(0xC1, 0xC1, 0xC1);
+            navList.Invalidate();
             if (historyList.IsHandleCreated) ApplyListTheme();
             historyList.Invalidate();
             if (IsHandleCreated) SetDarkTitle();
