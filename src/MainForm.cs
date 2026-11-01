@@ -1085,6 +1085,17 @@ namespace Calculator
             }
         }
 
+        // A window shown again after it was hidden may paint only part of itself until the next resize.
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible)
+            {
+                Invalidate(true);
+                Update();
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
@@ -1178,6 +1189,8 @@ namespace Calculator
             navHeader.ForeColor = theme.Text;
             navSection.BackColor = theme.Back;
             navSection.ForeColor = theme.Dim;
+            navOther.BackColor = theme.Back;
+            navOther.ForeColor = theme.Dim;
             captionBar.BackColor = theme.Back;
             captionTitle.BackColor = theme.Back;
             captionTitle.ForeColor = theme.Text;
