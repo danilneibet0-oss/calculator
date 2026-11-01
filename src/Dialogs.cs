@@ -5,6 +5,109 @@ using System.Windows.Forms;
 
 namespace Calculator
 {
+    /// <summary>A vertical list with its own thin scrollbar, so the thumb can follow the theme.
+    /// Children are stacked top to bottom at the full width; there is no horizontal scrolling.</summary>
+    sealed class ScrollList : Panel
+    {
+        const int BarWidth = 12;
+        int offset, contentHeight;
+        bool dragging;
+
+        public Color ThumbColor = Color.FromArgb(0x4D, 0x4D, 0x4D);
+
+        public ScrollList()
+        {
+            DoubleBuffered = true;
+            AutoScroll = false;
+        }
+
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            e.Control.MouseWheel += ChildWheel;
+            base.OnControlAdded(e);
+            Relayout();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Relayout();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            ScrollBy(e.Delta);
+            base.OnMouseWheel(e);
+        }
+
+        void ChildWheel(object sender, MouseEventArgs e) { ScrollBy(e.Delta); }
+
+        void ScrollBy(int delta)
+        {
+            offset -= delta / 120 * 40;
+            Relayout();
+        }
+
+        void Relayout()
+        {
+            int total = 8;
+            foreach (Control c in Controls) total += c.Height + c.Margin.Vertical;
+            contentHeight = total;
+            offset = Math.Max(0, Math.Min(offset, contentHeight - Height));
+
+            int y = 4 - offset;
+            foreach (Control c in Controls)
+            {
+                c.Left = 4;
+                c.Width = Math.Max(10, ClientSize.Width - 4 - BarWidth);
+                c.Top = y + c.Margin.Top;
+                y += c.Height + c.Margin.Vertical;
+            }
+            Invalidate();
+        }
+
+        bool Scrollable { get { return contentHeight > Height; } }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left && Scrollable && e.X >= Width - BarWidth)
+            {
+                dragging = true;
+                SetOffsetFromY(e.Y);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (dragging) SetOffsetFromY(e.Y);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            dragging = false;
+        }
+
+        void SetOffsetFromY(int y)
+        {
+            double share = Math.Max(0, Math.Min(1, (double)y / Height));
+            offset = (int)(share * (contentHeight - Height));
+            Relayout();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (!Scrollable) return;
+            int thumbHeight = Math.Max(30, Height * Height / contentHeight);
+            int thumbTop = (int)((double)offset / (contentHeight - Height) * (Height - thumbHeight));
+            using (var brush = new SolidBrush(ThumbColor))
+                e.Graphics.FillRectangle(brush, new Rectangle(Width - 7, thumbTop, 5, thumbHeight));
+        }
+    }
+
     /// <summary>Program name, version, license and a link to the project on GitHub.</summary>
     sealed class AboutForm : Form
     {
