@@ -965,6 +965,21 @@ namespace Calculator
             }
         }
 
+        /// <summary>Called on a background thread when an update is ready; the dialog is shown on the window's thread.</summary>
+        void OnUpdateReady(string version)
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            BeginInvoke((MethodInvoker)delegate
+            {
+                using (var dialog = new UpdateForm(theme, family, version))
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.Yes) return;
+                    Updater.RestartAfterInstall();
+                    Close();
+                }
+            });
+        }
+
         void ShowAbout()
         {
             using (var dialog = new AboutForm(theme, family))
@@ -1064,6 +1079,7 @@ namespace Calculator
             ApplySavedBounds();
             if (settings.HistoryOpen && !historyPanel.Visible) ToggleHistory();
             if (settings.Scientific) SetScientific(true);
+            Updater.Ready += OnUpdateReady;
             if (settings.AutoUpdate) Updater.CheckInBackground();
         }
 
