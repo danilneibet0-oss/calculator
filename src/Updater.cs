@@ -36,6 +36,10 @@ namespace Calculator
         const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B1F6E52-3C0D-4C8E-9A57-1F2A7B9D4E10}_is1";
 
         static volatile string readyInstaller;
+        static volatile bool relaunchAfterInstall;
+
+        /// <summary>Raised on a background thread once the installer is downloaded and verified; the argument is the new version.</summary>
+        public static event Action<string> Ready;
 
         /// <summary>True if the tag ("v1.4.0" or "1.4.0") is a higher version than current. Revision is ignored.</summary>
         public static bool IsNewer(string tag, Version current)
@@ -153,6 +157,8 @@ namespace Calculator
                 return;
             }
             readyInstaller = path;
+            Action<string> ready = Ready;
+            if (ready != null) ready(release.TagName.TrimStart('v', 'V'));
         }
 
         static string UpdateFolder
@@ -184,12 +190,35 @@ namespace Calculator
                 input.CopyTo(output);
         }
 
-        /// <summary>Runs the verified installer silently. Called as the window closes, so the update never interrupts the user.</summary>
+        /// <summary>The user chose to restart now: the update is installed and the program starts again.</summary>
+        public static void RestartAfterInstall()
+        {
+            relaunchAfterInstall = true;
+        }
+
+        /// <summary>Runs the verified installer silently. Called as the window closes, so the update never interrupts the user.
+        /// After "restart now" the new version is started once the installer has finished.</summary>
         public static void InstallOnExit()
         {
             string path = readyInstaller;
             if (path == null) return;
-            try { Process.Start(path, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS"); }
+            const string flags = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS";
+            try
+            {
+                if (!relaunchAfterInstall)
+                {
+                    Process.Start(path, flags);
+                    return;
+                }
+                string app = typeof(Updater).Assembly.Location;
+                var psi = new ProcessStartInfo("cmd.exe",
+                    string.Format("/c \"\"{0}\" {1} && start \"\" \"{2}\"\"", path, flags, app))
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process.Start(psi);
+            }
             catch { }
         }
     }
