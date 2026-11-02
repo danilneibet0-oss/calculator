@@ -192,6 +192,67 @@ namespace Calculator
         }
     }
 
+    /// <summary>Shown when an update has been downloaded. "Restart now" returns DialogResult.Yes, "Later" returns No.</summary>
+    sealed class UpdateForm : Form
+    {
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        readonly bool dark;
+
+        public UpdateForm(Theme theme, string family, string version)
+        {
+            dark = theme.Dark;
+            Text = "Обновление";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(340, 170);
+            BackColor = theme.Back;
+            ForeColor = theme.Text;
+            Font = new Font(family, 10f, FontStyle.Regular, GraphicsUnit.Point);
+
+            var text = new Label
+            {
+                Text = string.Format("Версия {0} загружена.\nПерезапустить приложение, чтобы установить обновление?", version),
+                Location = new Point(20, 20),
+                Size = new Size(300, 60)
+            };
+
+            var later = new CalcButton
+            {
+                Text = "Позже",
+                Kind = Kind.Function,
+                Theme = theme,
+                FontFamilyName = family,
+                Location = new Point(118, 116),
+                Size = new Size(96, 34)
+            };
+            var restart = new CalcButton
+            {
+                Text = "Перезапустить",
+                Kind = Kind.Equals,
+                Theme = theme,
+                FontFamilyName = family,
+                Location = new Point(220, 116),
+                Size = new Size(104, 34)
+            };
+            later.Click += delegate { DialogResult = DialogResult.No; Close(); };
+            restart.Click += delegate { DialogResult = DialogResult.Yes; Close(); };
+
+            Controls.AddRange(new Control[] { text, later, restart });
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            int value = dark ? 1 : 0;
+            try { DwmSetWindowAttribute(Handle, 20, ref value, 4); } catch { }   // dark title bar, as in the main window
+        }
+    }
+
     /// <summary>Converts a number between units of one category. Recalculates on every change.</summary>
     sealed class ConverterForm : Form
     {
