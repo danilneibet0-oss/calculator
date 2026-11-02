@@ -5,8 +5,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Калькулятор")]
 [assembly: AssemblyProduct("Калькулятор")]
 [assembly: AssemblyDescription("Лёгкий калькулятор в стиле Windows 11")]
-[assembly: AssemblyVersion("1.5.116.0")]
-[assembly: AssemblyFileVersion("1.5.116.0")]
+[assembly: AssemblyVersion("1.5.117.0")]
+[assembly: AssemblyFileVersion("1.5.117.0")]
 
 namespace Calculator
 {
