@@ -186,7 +186,7 @@ namespace Calculator
 
         public CalcButton()
         {
-            SetStyle(ControlStyles.UserPaint |
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
                      ControlStyles.StandardClick | ControlStyles.StandardDoubleClick, true);
             TabStop = true;
@@ -337,7 +337,7 @@ namespace Calculator
 
         public DisplayBox()
         {
-            SetStyle(ControlStyles.UserPaint |
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             SetStyle(ControlStyles.Selectable, false);
             TabStop = false;
@@ -490,6 +490,25 @@ namespace Calculator
         }
     }
 
+    /// <summary>Double-buffered panel that clips child controls so resizing does not flash behind them.</summary>
+    class BufferedPanel : Panel
+    {
+        public BufferedPanel()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= 0x02000000;   // WS_CLIPCHILDREN
+                return cp;
+            }
+        }
+    }
+
     sealed class MainForm : Form
     {
         [DllImport("dwmapi.dll")]
@@ -514,8 +533,8 @@ namespace Calculator
         bool scientific;   // which engine the keys go to
         bool second;       // "2nd" key: inverse trigonometry and exponentials
         readonly DisplayBox display = new DisplayBox();
-        readonly Panel historyPanel = new Panel();
-        readonly Panel historyHeader = new Panel();
+        readonly BufferedPanel historyPanel = new BufferedPanel();
+        readonly BufferedPanel historyHeader = new BufferedPanel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
         CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall, percentButton;
@@ -527,10 +546,10 @@ namespace Calculator
         readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
-        readonly Panel navPanel = new Panel();
+        readonly BufferedPanel navPanel = new BufferedPanel();
         readonly ScrollList navList = new ScrollList();
         readonly Label navHeader = new Label(), navSection = new Label(), navOther = new Label(), captionTitle = new Label();
-        readonly Panel captionBar = new Panel();
+        readonly BufferedPanel captionBar = new BufferedPanel();
         readonly PictureBox captionIcon = new PictureBox();
         CalcButton navToggle, plainButton, sciButton, minButton, maxButton, closeButton;
         ConverterForm converter;

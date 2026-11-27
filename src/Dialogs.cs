@@ -17,8 +17,19 @@ namespace Calculator
 
         public ScrollList()
         {
-            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             AutoScroll = false;
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= 0x02000000;   // WS_CLIPCHILDREN
+                return cp;
+            }
         }
 
         protected override void OnControlAdded(ControlEventArgs e)
@@ -56,13 +67,14 @@ namespace Calculator
             offset = Math.Max(0, Math.Min(offset, contentHeight - Height));
 
             int y = 4 - offset;
+            int childW = Math.Max(10, ClientSize.Width - 4 - BarWidth);
+            SuspendLayout();
             foreach (Control c in Controls)
             {
-                c.Left = 4;
-                c.Width = Math.Max(10, ClientSize.Width - 4 - BarWidth);
-                c.Top = y + c.Margin.Top;
+                c.SetBounds(4, y + c.Margin.Top, childW, c.Height);
                 y += c.Height + c.Margin.Vertical;
             }
+            ResumeLayout(false);
             Invalidate();
         }
 
