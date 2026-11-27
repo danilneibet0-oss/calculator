@@ -232,58 +232,68 @@ namespace Calculator
             g.Clear(Theme.Back);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            DrawFace(g, ClientRectangle, Text, Kind, Theme, FontFamilyName,
+                Enabled, hover, pressed, Active, LeftAlign, Focused && ShowFocusCues);
+        }
 
-            Color fill, fore = Theme.Text;
-            switch (Kind)
+        internal static void DrawFace(Graphics g, Rectangle rect, string text, Kind kind, Theme theme,
+            string fontFamilyName, bool enabled, bool hover, bool pressed, bool active, bool leftAlign, bool showFocus)
+        {
+            if (rect.Width <= 2 || rect.Height <= 2) return;
+
+            Color fill, fore = theme.Text;
+            switch (kind)
             {
                 case Kind.Equals:
-                    fill = pressed ? Theme.EqPress : hover ? Theme.EqHover : Theme.EqNormal;
-                    fore = Theme.EqText;
+                    fill = pressed ? theme.EqPress : hover ? theme.EqHover : theme.EqNormal;
+                    fore = theme.EqText;
                     break;
                 case Kind.Number:
-                    fill = pressed ? Theme.NumPress : hover ? Theme.NumHover : Theme.NumNormal;
+                    fill = pressed ? theme.NumPress : hover ? theme.NumHover : theme.NumNormal;
                     break;
                 case Kind.Memory:   // text-only until hovered, like the memory strip in Windows 11
-                    fill = !Enabled ? Theme.Back : pressed ? Theme.FnPress : hover ? Theme.FnHover : Theme.Back;
+                    fill = !enabled ? theme.Back : pressed ? theme.FnPress : hover ? theme.FnHover : theme.Back;
                     break;
                 default:
-                    fill = pressed ? Theme.FnPress : hover ? Theme.FnHover : Theme.FnNormal;
+                    fill = pressed ? theme.FnPress : hover ? theme.FnHover : theme.FnNormal;
                     break;
             }
-            if (pressed && Kind != Kind.Equals) fore = Theme.Dim;
-            if (!Enabled) fore = Blend(Theme.Dim, Theme.Back, 0.45f);
-            if (Active && Kind == Kind.Function)
+            if (pressed && kind != Kind.Equals) fore = theme.Dim;
+            if (!enabled) fore = Blend(theme.Dim, theme.Back, 0.45f);
+            if (active && kind == Kind.Function)
             {
-                fill = Theme.FnPress;
-                fore = Theme.EqNormal;
+                fill = theme.FnPress;
+                fore = theme.EqNormal;
             }
 
             int r;
-            GraphicsPath path = PaintCache.GetRoundPath(Width, Height, out r);
+            GraphicsPath path = PaintCache.GetRoundPath(rect.Width, rect.Height, out r);
+            if (rect.X != 0 || rect.Y != 0) g.TranslateTransform(rect.X, rect.Y);
             g.FillPath(PaintCache.GetBrush(fill), path);
-            if (!Theme.Dark && Kind != Kind.Equals && Kind != Kind.Memory)
-                g.DrawPath(PaintCache.GetPen(Theme.Border), path);
+            if (!theme.Dark && kind != Kind.Equals && kind != Kind.Memory)
+                g.DrawPath(PaintCache.GetPen(theme.Border), path);
+            if (rect.X != 0 || rect.Y != 0) g.TranslateTransform(-rect.X, -rect.Y);
 
-            float px = Math.Max(10f, Math.Min(Height * 0.36f, Width * 0.30f));
-            if (Kind == Kind.Memory) px = Math.Max(12f, Height * 0.46f);
-            FontStyle style = Kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
-            string family = Text == "⌫" ? "Segoe UI Symbol" : FontFamilyName;
-            if (Text.Length == 1 && Text[0] >= '\uE000' && Text[0] <= '\uF8FF')
+            float px = Math.Max(10f, Math.Min(rect.Height * 0.36f, rect.Width * 0.30f));
+            if (kind == Kind.Memory) px = Math.Max(12f, rect.Height * 0.46f);
+            FontStyle style = kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
+            string family = text == "⌫" ? "Segoe UI Symbol" : fontFamilyName;
+            if (text.Length == 1 && text[0] >= '\uE000' && text[0] <= '\uF8FF')
             {
                 family = IconFont;
                 px *= 1.2f;
             }
-            Rectangle textRect = ClientRectangle;
+            Rectangle textRect = rect;
             TextFormatFlags align = TextFormatFlags.HorizontalCenter;
-            if (LeftAlign) { textRect = new Rectangle(14, 0, Width - 14, Height); align = TextFormatFlags.Left; }
+            if (leftAlign) { textRect = new Rectangle(rect.X + 14, rect.Y, rect.Width - 14, rect.Height); align = TextFormatFlags.Left; }
             Font f = PaintCache.GetFont(family, px, style);
-            TextRenderer.DrawText(g, Text, f, textRect, fore,
+            TextRenderer.DrawText(g, text, f, textRect, fore,
                 align | TextFormatFlags.VerticalCenter |
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
 
-            if (Focused && ShowFocusCues && Width > 8 && Height > 8)
-                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, r - 2)))
-                using (var pen = new Pen(Kind == Kind.Equals ? Theme.EqText : Theme.EqNormal, 2f))
+            if (showFocus && rect.Width > 8 && rect.Height > 8)
+                using (GraphicsPath ring = Round(new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 7, rect.Height - 7), Math.Max(1, r - 2)))
+                using (var pen = new Pen(kind == Kind.Equals ? theme.EqText : theme.EqNormal, 2f))
                     g.DrawPath(pen, ring);
         }
 
@@ -582,57 +592,304 @@ namespace Calculator
         }
     }
 
-    /// <summary>Uniform grid that positions all cells in a single atomic DeferWindowPos pass.</summary>
-    sealed class GridPanel : BufferedPanel
+    /// <summary>Single key cell inside a KeypadGrid (no per-key HWND overhead during resize).</summary>
+    sealed class KeyCell
     {
-        readonly int cols, rows;
-        readonly Control[] items;
-        readonly int[] itemCols, itemRows;
-        readonly Rectangle[] scratch;
-        int count;
+        public readonly int Col, Row;
+        public readonly Kind Kind;
+        public readonly Padding Margin;
+        public readonly Action Click;
+        internal KeypadGrid Owner;
+        internal Rectangle Bounds;
+        string text, accessibleName;
+        bool enabled = true, active;
 
-        public GridPanel(int columns, int rows)
+        public KeyCell(int col, int row, string text, Kind kind, Padding margin, Action onClick)
+        {
+            Col = col;
+            Row = row;
+            this.text = text;
+            Kind = kind;
+            Margin = margin;
+            Click = onClick;
+        }
+
+        public string Text
+        {
+            get { return text; }
+            set { if (text != value) { text = value; Invalidate(); } }
+        }
+
+        public bool Enabled
+        {
+            get { return enabled; }
+            set { if (enabled != value) { enabled = value; Invalidate(); } }
+        }
+
+        public bool Active
+        {
+            get { return active; }
+            set { if (active != value) { active = value; Invalidate(); } }
+        }
+
+        public string AccessibleName
+        {
+            get { return accessibleName ?? text; }
+            set { accessibleName = value; }
+        }
+
+        public void Invalidate()
+        {
+            if (Owner != null && !Bounds.IsEmpty) Owner.Invalidate(Bounds);
+        }
+    }
+
+    /// <summary>Owner-drawn uniform button grid: 1 HWND instead of N, with full Tab focus and accessibility.</summary>
+    sealed class KeypadGrid : Control
+    {
+        public Theme Theme;
+        public string FontFamilyName = "Segoe UI";
+        readonly int cols, rows;
+        readonly KeyCell[] cells;
+        int count;
+        int hotIndex = -1, pressedIndex = -1, focusedIndex = -1;
+
+        public KeypadGrid(int columns, int rows)
         {
             cols = columns;
             this.rows = rows;
-            int cap = columns * rows;
-            items = new Control[cap];
-            itemCols = new int[cap];
-            itemRows = new int[cap];
-            scratch = new Rectangle[cap];
+            cells = new KeyCell[columns * rows];
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            TabStop = true;
+            Cursor = Cursors.Default;
         }
 
-        public void AddCell(Control control, int col, int row)
+        public int CellCount { get { return count; } }
+        public KeyCell CellAt(int index) { return cells[index]; }
+
+        public KeyCell AddCell(int col, int row, string text, Kind kind, Padding margin, Action onClick)
         {
-            items[count] = control;
-            itemCols[count] = col;
-            itemRows[count] = row;
-            count++;
-            Controls.Add(control);
+            var cell = new KeyCell(col, row, text, kind, margin, onClick) { Owner = this };
+            cells[count++] = cell;
+            ComputeBounds();
+            return cell;
         }
 
-        protected override void OnLayout(LayoutEventArgs e)
+        void ComputeBounds()
         {
-            int x0 = Padding.Left, y0 = Padding.Top;
-            int w = ClientSize.Width - Padding.Horizontal;
-            int h = ClientSize.Height - Padding.Vertical;
+            int w = ClientSize.Width, h = ClientSize.Height;
             if (w <= 0 || h <= 0 || count == 0) return;
-
             for (int i = 0; i < count; i++)
             {
-                int c = itemCols[i], r = itemRows[i];
-                int left = x0 + c * w / cols;
-                int right = x0 + (c + 1) * w / cols;
-                int top = y0 + r * h / rows;
-                int bottom = y0 + (r + 1) * h / rows;
-                Padding m = items[i].Margin;
-                scratch[i] = new Rectangle(
+                KeyCell c = cells[i];
+                int left = c.Col * w / cols, right = (c.Col + 1) * w / cols;
+                int top = c.Row * h / rows, bottom = (c.Row + 1) * h / rows;
+                Padding m = c.Margin;
+                c.Bounds = new Rectangle(
                     left + m.Left,
                     top + m.Top,
                     Math.Max(1, right - left - m.Horizontal),
                     Math.Max(1, bottom - top - m.Vertical));
             }
-            Win32Layout.Apply(this, items, scratch, count);
+        }
+
+        int HitTest(Point p)
+        {
+            for (int i = 0; i < count; i++)
+                if (cells[i].Bounds.Contains(p)) return i;
+            return -1;
+        }
+
+        void InvalidateCell(int index)
+        {
+            if (index >= 0 && index < count && !cells[index].Bounds.IsEmpty)
+                Invalidate(cells[index].Bounds);
+        }
+
+        int NextEnabled(int start, int step)
+        {
+            for (int i = start + step; i >= 0 && i < count; i += step)
+                if (cells[i].Enabled) return i;
+            return -1;
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            ComputeBounds();
+            base.OnResize(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (Width <= 0 || Height <= 0 || Theme == null) return;
+            Graphics g = e.Graphics;
+            Rectangle clip = e.ClipRectangle;
+            g.FillRectangle(PaintCache.GetBrush(Theme.Back), clip);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+            bool showFocus = Focused && ShowFocusCues;
+            for (int i = 0; i < count; i++)
+            {
+                KeyCell c = cells[i];
+                if (!c.Bounds.IntersectsWith(clip)) continue;
+                bool isHot = (pressedIndex < 0 || pressedIndex == i) && i == hotIndex;
+                bool isPressed = i == pressedIndex && isHot;
+                CalcButton.DrawFace(g, c.Bounds, c.Text, c.Kind, Theme, FontFamilyName,
+                    c.Enabled, isHot, isPressed, c.Active, false, showFocus && i == focusedIndex);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int idx = HitTest(e.Location);
+            if (idx != hotIndex)
+            {
+                int old = hotIndex;
+                hotIndex = idx;
+                InvalidateCell(old);
+                InvalidateCell(hotIndex);
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            int oldHot = hotIndex, oldPress = pressedIndex;
+            hotIndex = -1;
+            pressedIndex = -1;
+            InvalidateCell(oldHot);
+            if (oldPress != oldHot) InvalidateCell(oldPress);
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitTest(e.Location);
+                if (idx >= 0 && cells[idx].Enabled)
+                {
+                    pressedIndex = idx;
+                    InvalidateCell(idx);
+                }
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            int idx = pressedIndex;
+            if (idx >= 0)
+            {
+                pressedIndex = -1;
+                InvalidateCell(idx);
+                if (e.Button == MouseButtons.Left && HitTest(e.Location) == idx && cells[idx].Enabled && cells[idx].Click != null)
+                    cells[idx].Click();
+            }
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            bool reverse = (ModifierKeys & Keys.Shift) != 0;
+            focusedIndex = reverse ? NextEnabled(count, -1) : NextEnabled(-1, 1);
+            InvalidateCell(focusedIndex);
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            int old = focusedIndex;
+            focusedIndex = -1;
+            InvalidateCell(old);
+            base.OnLostFocus(e);
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            if ((keyData & Keys.KeyCode) == Keys.Tab && (keyData & (Keys.Control | Keys.Alt)) == 0)
+            {
+                int step = (keyData & Keys.Shift) != 0 ? -1 : 1;
+                int next = NextEnabled(focusedIndex, step);
+                if (next >= 0)
+                {
+                    int old = focusedIndex;
+                    focusedIndex = next;
+                    InvalidateCell(old);
+                    InvalidateCell(focusedIndex);
+                    return true;
+                }
+            }
+            return base.ProcessDialogKey(keyData);
+        }
+
+        protected override void OnKeyPress(KeyPressEventArgs e)
+        {
+            if ((e.KeyChar == ' ' || e.KeyChar == '\r') && focusedIndex >= 0 && focusedIndex < count && cells[focusedIndex].Enabled)
+            {
+                e.Handled = true;
+                if (cells[focusedIndex].Click != null) cells[focusedIndex].Click();
+            }
+            base.OnKeyPress(e);
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new KeypadAccessibleObject(this);
+        }
+
+        sealed class KeypadAccessibleObject : ControlAccessibleObject
+        {
+            readonly KeypadGrid grid;
+            public KeypadAccessibleObject(KeypadGrid owner) : base(owner) { grid = owner; }
+            public override int GetChildCount() { return grid.count; }
+            public override AccessibleObject GetChild(int index)
+            {
+                return index >= 0 && index < grid.count ? new CellAccessibleObject(grid, index, this) : null;
+            }
+            public override AccessibleObject HitTest(int x, int y)
+            {
+                int idx = grid.HitTest(grid.PointToClient(new Point(x, y)));
+                return idx >= 0 ? GetChild(idx) : base.HitTest(x, y);
+            }
+            public override AccessibleObject GetFocused()
+            {
+                return grid.Focused && grid.focusedIndex >= 0 ? GetChild(grid.focusedIndex) : base.GetFocused();
+            }
+        }
+
+        sealed class CellAccessibleObject : AccessibleObject
+        {
+            readonly KeypadGrid grid;
+            readonly int index;
+            readonly AccessibleObject parent;
+            public CellAccessibleObject(KeypadGrid grid, int index, AccessibleObject parent)
+            {
+                this.grid = grid;
+                this.index = index;
+                this.parent = parent;
+            }
+            public override AccessibleObject Parent { get { return parent; } }
+            public override string Name { get { return grid.cells[index].AccessibleName; } }
+            public override AccessibleRole Role { get { return AccessibleRole.PushButton; } }
+            public override Rectangle Bounds { get { return grid.RectangleToScreen(grid.cells[index].Bounds); } }
+            public override AccessibleStates State
+            {
+                get
+                {
+                    AccessibleStates s = AccessibleStates.Focusable;
+                    if (!grid.cells[index].Enabled) s |= AccessibleStates.Unavailable;
+                    if (grid.Focused && grid.focusedIndex == index) s |= AccessibleStates.Focused;
+                    if (grid.pressedIndex == index) s |= AccessibleStates.Pressed;
+                    return s;
+                }
+            }
+            public override void DoDefaultAction()
+            {
+                if (grid.cells[index].Enabled && grid.cells[index].Click != null) grid.cells[index].Click();
+            }
         }
     }
 
@@ -731,14 +988,15 @@ namespace Calculator
         readonly BufferedPanel historyHeader = new BufferedPanel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall, percentButton;
+        CalcButton clearHistoryButton, historyToggle, pinToggle;
+        KeyCell memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
         RootPanel rootPanel;
-        GridPanel sciPanel;
+        KeypadGrid memStrip, sciPanel, mainGrid;
         readonly Control[] captionRight = new Control[3];
         readonly Rectangle[] captionBounds = new Rectangle[3];
-        readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
-            new System.Collections.Generic.Dictionary<string, CalcButton>();
+        readonly System.Collections.Generic.Dictionary<string, KeyCell> sciButtons =
+            new System.Collections.Generic.Dictionary<string, KeyCell>();
         readonly Settings settings;
         readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
@@ -789,26 +1047,17 @@ namespace Calculator
             };
 
         /// <summary>The extra keys of scientific mode, shown above the keypad.</summary>
-        GridPanel BuildSciPanel()
+        KeypadGrid BuildSciPanel()
         {
             int rows = SciLayout.GetLength(0), cols = SciLayout.GetLength(1);
-            var panel = new GridPanel(cols, rows) { Visible = false };
+            var panel = new KeypadGrid(cols, rows) { Visible = false, FontFamilyName = family };
 
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
                 {
                     string key = SciLayout[r, c];
-                    var b = new CalcButton
-                    {
-                        Text = key,
-                        Kind = Kind.Function,
-                        Margin = new Padding(2),
-                        FontFamilyName = family
-                    };
-                    b.Click += delegate { Press(key); };
-                    buttons.Add(b);
-                    sciButtons[key] = b;
-                    panel.AddCell(b, c, r);
+                    KeyCell cell = panel.AddCell(c, r, key, Kind.Function, new Padding(2), delegate { Press(key); });
+                    sciButtons[key] = cell;
                 }
             return panel;
         }
@@ -834,50 +1083,33 @@ namespace Calculator
 
             display.FontFamilyName = family;
 
-            var memStrip = new GridPanel(5, 1);
+            memStrip = new KeypadGrid(5, 1) { FontFamilyName = family };
             string[] memKeys = { "MC", "MR", "M+", "M−", "MS" };
             for (int i = 0; i < memKeys.Length; i++)
             {
                 string key = memKeys[i];
-                var mb = new CalcButton
-                {
-                    Text = key,
-                    Kind = Kind.Memory,
-                    Margin = new Padding(2, 0, 2, 2),
-                    FontFamilyName = family
-                };
-                mb.Click += delegate { Press(key); };
-                buttons.Add(mb);
-                memStrip.AddCell(mb, i, 0);
-                if (key == "MC") memClear = mb;
-                if (key == "MR") memRecall = mb;
+                KeyCell cell = memStrip.AddCell(i, 0, key, Kind.Memory, new Padding(2, 0, 2, 2), delegate { Press(key); });
+                if (key == "MC") memClear = cell;
+                if (key == "MR") memRecall = cell;
             }
 
             sciPanel = BuildSciPanel();
 
-            var grid = new GridPanel(4, 6);
+            mainGrid = new KeypadGrid(4, 6) { FontFamilyName = family };
             for (int r = 0; r < 6; r++)
                 for (int c = 0; c < 4; c++)
                 {
                     string label = KeyLayout[r, c];
                     if (label == ",") label = CalcEngine.DecimalSeparator;
-                    var b = new CalcButton
-                    {
-                        Text = label,
-                        Margin = new Padding(2),
-                        FontFamilyName = family,
-                        Kind = label == "=" ? Kind.Equals
-                             : (r >= 2 && c < 3 && r < 5) || (r == 5 && c == 1) || (r == 5 && c == 2) ? Kind.Number
-                             : Kind.Function
-                    };
+                    Kind kind = label == "=" ? Kind.Equals
+                              : (r >= 2 && c < 3 && r < 5) || (r == 5 && c == 1) || (r == 5 && c == 2) ? Kind.Number
+                              : Kind.Function;
                     string key = KeyLayout[r, c];
-                    b.Click += delegate { Press(key); };
-                    buttons.Add(b);
-                    if (key == "%") percentButton = b;
-                    grid.AddCell(b, c, r);
+                    KeyCell cell = mainGrid.AddCell(c, r, label, kind, new Padding(2), delegate { Press(key); });
+                    if (key == "%") percentButton = cell;
                 }
 
-            rootPanel = new RootPanel(display, memStrip, sciPanel, grid)
+            rootPanel = new RootPanel(display, memStrip, sciPanel, mainGrid)
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(4, 0, 4, 4)
@@ -942,6 +1174,13 @@ namespace Calculator
                 string spoken;
                 if (SpokenNames.TryGetValue(b.Text, out spoken)) b.AccessibleName = spoken;
             }
+            foreach (KeypadGrid kp in new[] { memStrip, sciPanel, mainGrid })
+                for (int i = 0; i < kp.CellCount; i++)
+                {
+                    KeyCell cell = kp.CellAt(i);
+                    string spoken;
+                    if (SpokenNames.TryGetValue(cell.Text, out spoken)) cell.AccessibleName = spoken;
+                }
             ApplyTheme();
             SyncHistory();
             Refresh_();
@@ -1487,6 +1726,7 @@ namespace Calculator
             theme = Theme.ForMode(settings.ThemeMode);
             BackColor = theme.Back;
             display.Theme = theme;
+            memStrip.Theme = sciPanel.Theme = mainGrid.Theme = theme;
             foreach (CalcButton b in buttons) b.Theme = theme;
             historyPanel.BackColor = theme.Back;
             historyHeader.BackColor = theme.Back;
@@ -1652,7 +1892,7 @@ namespace Calculator
             else if (c == '-') k = "−";
             else if (c == '*') k = "×";
             else if (c == '/') k = "÷";
-            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused))) k = "=";   // Enter presses a focused key instead
+            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused) && !memStrip.Focused && !sciPanel.Focused && !mainGrid.Focused)) k = "=";   // Enter presses a focused key instead
             else if (c == ',' || c == '.') k = ",";
             else if (c == '%') k = "%";
             else if (c == '\b') k = "⌫";
