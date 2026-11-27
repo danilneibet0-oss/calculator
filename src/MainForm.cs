@@ -343,6 +343,16 @@ namespace Calculator
             TabStop = false;
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= 0x02000000;   // WS_CLIPCHILDREN
+                return cp;
+            }
+        }
+
         public void SetText(string expression, string val)
         {
             expr = expression;
@@ -490,6 +500,61 @@ namespace Calculator
         }
     }
 
+    /// <summary>Batches child control moves/resizes into a single atomic Win32 DeferWindowPos call.</summary>
+    static class Win32Layout
+    {
+        [DllImport("user32.dll")]
+        static extern IntPtr BeginDeferWindowPos(int nNumWindows);
+
+        [DllImport("user32.dll")]
+        static extern IntPtr DeferWindowPos(IntPtr hWinPosInfo, IntPtr hWnd, IntPtr hWndInsertAfter,
+            int x, int y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        static extern bool EndDeferWindowPos(IntPtr hWinPosInfo);
+
+        const uint SWP_NOZORDER = 0x0004;
+        const uint SWP_NOACTIVATE = 0x0010;
+        const uint SWP_NOCOPYBITS = 0x0100;
+
+        public static void Apply(Control parent, Control[] controls, Rectangle[] bounds, int count)
+        {
+            int changed = 0;
+            bool canDefer = parent.IsHandleCreated;
+            for (int i = 0; i < count; i++)
+            {
+                if (controls[i].Bounds != bounds[i]) changed++;
+                if (canDefer && !controls[i].IsHandleCreated) canDefer = false;
+            }
+            if (changed == 0) return;
+
+            if (canDefer)
+            {
+                IntPtr hdwp = BeginDeferWindowPos(changed);
+                if (hdwp != IntPtr.Zero)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        Rectangle b = bounds[i];
+                        if (controls[i].Bounds == b) continue;
+                        hdwp = DeferWindowPos(hdwp, controls[i].Handle, IntPtr.Zero,
+                            b.X, b.Y, b.Width, b.Height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+                        if (hdwp == IntPtr.Zero) break;
+                    }
+                    if (hdwp != IntPtr.Zero && EndDeferWindowPos(hdwp)) return;
+                }
+            }
+
+            parent.SuspendLayout();
+            for (int i = 0; i < count; i++)
+            {
+                Rectangle b = bounds[i];
+                if (controls[i].Bounds != b) controls[i].SetBounds(b.X, b.Y, b.Width, b.Height);
+            }
+            parent.ResumeLayout(false);
+        }
+    }
+
     /// <summary>Double-buffered panel that clips child controls so resizing does not flash behind them.</summary>
     class BufferedPanel : Panel
     {
@@ -506,6 +571,116 @@ namespace Calculator
                 cp.Style |= 0x02000000;   // WS_CLIPCHILDREN
                 return cp;
             }
+        }
+    }
+
+    /// <summary>Uniform grid that positions all cells in a single atomic DeferWindowPos pass.</summary>
+    sealed class GridPanel : BufferedPanel
+    {
+        readonly int cols, rows;
+        readonly Control[] items;
+        readonly int[] itemCols, itemRows;
+        readonly Rectangle[] scratch;
+        int count;
+
+        public GridPanel(int columns, int rows)
+        {
+            cols = columns;
+            this.rows = rows;
+            int cap = columns * rows;
+            items = new Control[cap];
+            itemCols = new int[cap];
+            itemRows = new int[cap];
+            scratch = new Rectangle[cap];
+        }
+
+        public void AddCell(Control control, int col, int row)
+        {
+            items[count] = control;
+            itemCols[count] = col;
+            itemRows[count] = row;
+            count++;
+            Controls.Add(control);
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            int x0 = Padding.Left, y0 = Padding.Top;
+            int w = ClientSize.Width - Padding.Horizontal;
+            int h = ClientSize.Height - Padding.Vertical;
+            if (w <= 0 || h <= 0 || count == 0) return;
+
+            for (int i = 0; i < count; i++)
+            {
+                int c = itemCols[i], r = itemRows[i];
+                int left = x0 + c * w / cols;
+                int right = x0 + (c + 1) * w / cols;
+                int top = y0 + r * h / rows;
+                int bottom = y0 + (r + 1) * h / rows;
+                Padding m = items[i].Margin;
+                scratch[i] = new Rectangle(
+                    left + m.Left,
+                    top + m.Top,
+                    Math.Max(1, right - left - m.Horizontal),
+                    Math.Max(1, bottom - top - m.Vertical));
+            }
+            Win32Layout.Apply(this, items, scratch, count);
+        }
+    }
+
+    /// <summary>Stacks display (21%), memory strip, optional scientific panel and main keypad (79%).</summary>
+    sealed class RootPanel : BufferedPanel
+    {
+        readonly Control display, memStrip, sciPanel, grid;
+        readonly Control[] scratchCtrls = new Control[4];
+        readonly Rectangle[] scratchBounds = new Rectangle[4];
+        int sciHeight;
+
+        public int SciHeight
+        {
+            get { return sciHeight; }
+            set { if (sciHeight != value) { sciHeight = value; PerformLayout(); } }
+        }
+
+        public RootPanel(Control display, Control memStrip, Control sciPanel, Control grid)
+        {
+            this.display = display;
+            this.memStrip = memStrip;
+            this.sciPanel = sciPanel;
+            this.grid = grid;
+            Controls.AddRange(new[] { display, memStrip, sciPanel, grid });
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            int x = Padding.Left, y = Padding.Top;
+            int w = ClientSize.Width - Padding.Horizontal;
+            int h = ClientSize.Height - Padding.Vertical;
+            if (w <= 0 || h <= 0) return;
+
+            int memH = (int)Math.Round(28f * DeviceDpi / 96f);
+            int sciH = sciPanel.Visible ? sciHeight : 0;
+            int avail = Math.Max(0, h - memH - sciH);
+            int displayH = (int)Math.Round(avail * 0.21f);
+            int gridH = Math.Max(0, avail - displayH);
+
+            int n = 0;
+            scratchCtrls[n] = display;
+            scratchBounds[n++] = new Rectangle(x, y, w, Math.Max(1, displayH));
+
+            scratchCtrls[n] = memStrip;
+            scratchBounds[n++] = new Rectangle(x, y + displayH, w, Math.Max(1, memH));
+
+            if (sciH > 0)
+            {
+                scratchCtrls[n] = sciPanel;
+                scratchBounds[n++] = new Rectangle(x, y + displayH + memH, w, sciH);
+            }
+
+            scratchCtrls[n] = grid;
+            scratchBounds[n++] = new Rectangle(x, y + displayH + memH + sciH, w, Math.Max(1, gridH));
+
+            Win32Layout.Apply(this, scratchCtrls, scratchBounds, n);
         }
     }
 
@@ -539,7 +714,10 @@ namespace Calculator
         readonly HistoryList historyList = new HistoryList();
         CalcButton clearHistoryButton, historyToggle, pinToggle, memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
-        TableLayoutPanel sciPanel;
+        RootPanel rootPanel;
+        GridPanel sciPanel;
+        readonly Control[] captionRight = new Control[3];
+        readonly Rectangle[] captionBounds = new Rectangle[3];
         readonly System.Collections.Generic.Dictionary<string, CalcButton> sciButtons =
             new System.Collections.Generic.Dictionary<string, CalcButton>();
         readonly Settings settings;
@@ -592,19 +770,10 @@ namespace Calculator
             };
 
         /// <summary>The extra keys of scientific mode, shown above the keypad.</summary>
-        TableLayoutPanel BuildSciPanel()
+        GridPanel BuildSciPanel()
         {
             int rows = SciLayout.GetLength(0), cols = SciLayout.GetLength(1);
-            var panel = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = cols,
-                RowCount = rows,
-                Margin = new Padding(0),
-                Visible = false
-            };
-            for (int c = 0; c < cols; c++) panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / cols));
-            for (int r = 0; r < rows; r++) panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / rows));
+            var panel = new GridPanel(cols, rows) { Visible = false };
 
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
@@ -614,14 +783,13 @@ namespace Calculator
                     {
                         Text = key,
                         Kind = Kind.Function,
-                        Dock = DockStyle.Fill,
                         Margin = new Padding(2),
                         FontFamilyName = family
                     };
                     b.Click += delegate { Press(key); };
                     buttons.Add(b);
                     sciButtons[key] = b;
-                    panel.Controls.Add(b, c, r);
+                    panel.AddCell(b, c, r);
                 }
             return panel;
         }
@@ -645,52 +813,30 @@ namespace Calculator
             DoubleBuffered = true;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            var root = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 4,
-                Padding = new Padding(4, 0, 4, 4)
-            };
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 21f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));   // compact memory strip
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0f));    // function panel, grows in scientific mode
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 79f));
-
-            display.Dock = DockStyle.Fill;
             display.FontFamilyName = family;
-            root.Controls.Add(display, 0, 0);
 
-            var memStrip = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Margin = new Padding(0) };
-            memStrip.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            var memStrip = new GridPanel(5, 1);
             string[] memKeys = { "MC", "MR", "M+", "M−", "MS" };
             for (int i = 0; i < memKeys.Length; i++)
             {
-                memStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
                 string key = memKeys[i];
                 var mb = new CalcButton
                 {
                     Text = key,
                     Kind = Kind.Memory,
-                    Dock = DockStyle.Fill,
                     Margin = new Padding(2, 0, 2, 2),
                     FontFamilyName = family
                 };
                 mb.Click += delegate { Press(key); };
                 buttons.Add(mb);
-                memStrip.Controls.Add(mb, i, 0);
+                memStrip.AddCell(mb, i, 0);
                 if (key == "MC") memClear = mb;
                 if (key == "MR") memRecall = mb;
             }
-            root.Controls.Add(memStrip, 0, 1);
 
             sciPanel = BuildSciPanel();
-            root.Controls.Add(sciPanel, 0, 2);
 
-            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 6, Margin = new Padding(0) };
-            for (int c = 0; c < 4; c++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-            for (int r = 0; r < 6; r++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 6f));
-
+            var grid = new GridPanel(4, 6);
             for (int r = 0; r < 6; r++)
                 for (int c = 0; c < 4; c++)
                 {
@@ -699,7 +845,6 @@ namespace Calculator
                     var b = new CalcButton
                     {
                         Text = label,
-                        Dock = DockStyle.Fill,
                         Margin = new Padding(2),
                         FontFamilyName = family,
                         Kind = label == "=" ? Kind.Equals
@@ -710,9 +855,14 @@ namespace Calculator
                     b.Click += delegate { Press(key); };
                     buttons.Add(b);
                     if (key == "%") percentButton = b;
-                    grid.Controls.Add(b, c, r);
+                    grid.AddCell(b, c, r);
                 }
-            root.Controls.Add(grid, 0, 3);
+
+            rootPanel = new RootPanel(display, memStrip, sciPanel, grid)
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(4, 0, 4, 4)
+            };
 
             navToggle = new CalcButton
             {
@@ -761,7 +911,7 @@ namespace Calculator
             display.Resize += delegate { LayoutTopRow(); };
             LayoutTopRow();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
-            Controls.Add(root);            // Fill goes first so the docked panels claim their space before it
+            Controls.Add(rootPanel);       // Fill goes first so the docked panels claim their space before it
             Controls.Add(historyPanel);
             Controls.Add(navPanel);
             Controls.Add(captionBar);      // added last, so the caption takes the top edge first
@@ -939,6 +1089,7 @@ namespace Calculator
         {
             bool show = !navPanel.Visible;
             int w = navPanel.Width;
+            SuspendLayout();
             if (WindowState == FormWindowState.Normal)
             {
                 // Setting MinimumSize resizes the window at once, so the order depends on the direction.
@@ -949,6 +1100,7 @@ namespace Calculator
                 else { MinimumSize = minimum; Bounds = target; }
             }
             navPanel.Visible = show;
+            ResumeLayout(true);
             ActiveControl = null;
         }
 
@@ -997,9 +1149,12 @@ namespace Calculator
 
         void LayoutCaption()
         {
-            closeButton.Location = new Point(captionBar.Width - 46, 0);
-            maxButton.Location = new Point(closeButton.Left - 46, 0);
-            minButton.Location = new Point(maxButton.Left - 46, 0);
+            int w = closeButton.Width, h = captionBar.Height;
+            int closeX = captionBar.Width - w;
+            captionRight[0] = closeButton; captionBounds[0] = new Rectangle(closeX, 0, w, h);
+            captionRight[1] = maxButton;   captionBounds[1] = new Rectangle(closeX - w, 0, w, h);
+            captionRight[2] = minButton;   captionBounds[2] = new Rectangle(closeX - w * 2, 0, w, h);
+            Win32Layout.Apply(captionBar, captionRight, captionBounds, 3);
         }
 
         void DragCaption(object sender, MouseEventArgs e)
@@ -1169,13 +1324,15 @@ namespace Calculator
             if (scientific == on) return;
             scientific = on;
             int delta = (int)Math.Round(SciPanelHeight * DeviceDpi / 96f);
-            ((TableLayoutPanel)sciPanel.Parent).RowStyles[2].Height = on ? delta : 0;
+            SuspendLayout();
+            rootPanel.SciHeight = on ? delta : 0;
             sciPanel.Visible = on;
             if (WindowState == FormWindowState.Normal)
             {
                 MinimumSize = new Size(MinimumSize.Width, MinimumSize.Height + (on ? delta : -delta));
                 Height += on ? delta : -delta;
             }
+            ResumeLayout(true);
             UpdateNavState();
             UpdateSciLabels();
             Refresh_();
@@ -1236,7 +1393,7 @@ namespace Calculator
             Rectangle b = normal ? Bounds : RestoreBounds;
             int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0) - (normal && navPanel.Visible ? navPanel.Width : 0);
             // The window is stored without the function panel; it is added again when the mode is restored.
-            int sciExtra = normal && scientific ? (int)((TableLayoutPanel)sciPanel.Parent).RowStyles[2].Height : 0;
+            int sciExtra = normal && scientific ? rootPanel.SciHeight : 0;
             float k = 96f / DeviceDpi;
             new Settings
             {
@@ -1258,6 +1415,7 @@ namespace Calculator
         {
             bool show = !historyPanel.Visible;
             int w = historyPanel.Width;
+            SuspendLayout();
             if (WindowState == FormWindowState.Normal)
             {
                 int target = Width + (show ? w : -w);
@@ -1265,6 +1423,7 @@ namespace Calculator
                 Width = target;
             }
             historyPanel.Visible = show;
+            ResumeLayout(true);
             ActiveControl = null;
         }
 
