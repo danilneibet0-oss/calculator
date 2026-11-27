@@ -94,6 +94,80 @@ namespace Calculator
         public override Color SeparatorLight { get { return sep; } }
     }
 
+    /// <summary>Caches GDI+ fonts, brushes and pens so resize repaints do not allocate native handles on every frame.</summary>
+    static class PaintCache
+    {
+        struct FontKey : IEquatable<FontKey>
+        {
+            public readonly string Family;
+            public readonly int SizePx;
+            public readonly FontStyle Style;
+            public FontKey(string family, int sizePx, FontStyle style) { Family = family; SizePx = sizePx; Style = style; }
+            public bool Equals(FontKey other) { return SizePx == other.SizePx && Style == other.Style && Family == other.Family; }
+            public override bool Equals(object obj) { return obj is FontKey && Equals((FontKey)obj); }
+            public override int GetHashCode() { return (Family.GetHashCode() * 397 ^ SizePx) * 31 ^ (int)Style; }
+        }
+
+        static readonly System.Collections.Generic.Dictionary<FontKey, Font> fonts =
+            new System.Collections.Generic.Dictionary<FontKey, Font>();
+        static readonly System.Collections.Generic.Dictionary<int, SolidBrush> brushes =
+            new System.Collections.Generic.Dictionary<int, SolidBrush>();
+        static readonly System.Collections.Generic.Dictionary<int, Pen> pens =
+            new System.Collections.Generic.Dictionary<int, Pen>();
+
+        public static Font GetFont(string family, float sizePx, FontStyle style)
+        {
+            int px = Math.Max(1, (int)Math.Round(sizePx));
+            var key = new FontKey(family, px, style);
+            Font f;
+            if (!fonts.TryGetValue(key, out f))
+            {
+                if (fonts.Count >= 160)
+                {
+                    foreach (Font old in fonts.Values) old.Dispose();
+                    fonts.Clear();
+                }
+                f = new Font(family, px, style, GraphicsUnit.Pixel);
+                fonts[key] = f;
+            }
+            return f;
+        }
+
+        public static SolidBrush GetBrush(Color color)
+        {
+            int argb = color.ToArgb();
+            SolidBrush br;
+            if (!brushes.TryGetValue(argb, out br))
+            {
+                if (brushes.Count >= 64)
+                {
+                    foreach (SolidBrush old in brushes.Values) old.Dispose();
+                    brushes.Clear();
+                }
+                br = new SolidBrush(color);
+                brushes[argb] = br;
+            }
+            return br;
+        }
+
+        public static Pen GetPen(Color color)
+        {
+            int argb = color.ToArgb();
+            Pen pen;
+            if (!pens.TryGetValue(argb, out pen))
+            {
+                if (pens.Count >= 32)
+                {
+                    foreach (Pen old in pens.Values) old.Dispose();
+                    pens.Clear();
+                }
+                pen = new Pen(color);
+                pens[argb] = pen;
+            }
+            return pen;
+        }
+    }
+
     /// <summary>Flat rounded button that never takes keyboard focus.</summary>
     sealed class CalcButton : Control
     {
@@ -106,6 +180,9 @@ namespace Calculator
         /// <summary>Menu items: text starts at the left edge instead of the centre.</summary>
         public bool LeftAlign;
         bool hover, pressed;
+        GraphicsPath cachedPath;
+        Size cachedPathSize;
+        int cachedRadius;
 
         public CalcButton()
         {
@@ -117,6 +194,16 @@ namespace Calculator
             Cursor = Cursors.Default;
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && cachedPath != null)
+            {
+                cachedPath.Dispose();
+                cachedPath = null;
+            }
+            base.Dispose(disposing);
+        }
+
         protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { hover = false; pressed = false; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { pressed = true; Invalidate(); } base.OnMouseDown(e); }
@@ -124,6 +211,7 @@ namespace Calculator
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            if (Width <= 2 || Height <= 2) return;
             Graphics g = e.Graphics;
             g.Clear(Theme.Back);
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -154,21 +242,25 @@ namespace Calculator
                 fore = Theme.EqNormal;
             }
 
-            int r = (int)(Math.Min(Width, Height) * 0.11f) + 2;
-            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath path = Round(rect, r))
-            using (var br = new SolidBrush(fill))
+            if (cachedPath == null || cachedPathSize.Width != Width || cachedPathSize.Height != Height)
             {
-                g.FillPath(br, path);
-                if (!Theme.Dark && Kind != Kind.Equals && Kind != Kind.Memory)
-                    using (var pen = new Pen(Theme.Border)) g.DrawPath(pen, path);
+                if (cachedPath != null) cachedPath.Dispose();
+                int r = (int)(Math.Min(Width, Height) * 0.11f) + 2;
+                int maxR = Math.Max(1, (Math.Min(Width, Height) - 2) / 2);
+                if (r > maxR) r = maxR;
+                cachedRadius = r;
+                cachedPathSize = Size;
+                cachedPath = Round(new Rectangle(0, 0, Width - 1, Height - 1), r);
             }
+            g.FillPath(PaintCache.GetBrush(fill), cachedPath);
+            if (!Theme.Dark && Kind != Kind.Equals && Kind != Kind.Memory)
+                g.DrawPath(PaintCache.GetPen(Theme.Border), cachedPath);
 
             float px = Math.Max(10f, Math.Min(Height * 0.36f, Width * 0.30f));
             if (Kind == Kind.Memory) px = Math.Max(12f, Height * 0.46f);
             FontStyle style = Kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
             string family = Text == "⌫" ? "Segoe UI Symbol" : FontFamilyName;
-            if (Text.Length == 1 && Text[0] >= '' && Text[0] <= '')
+            if (Text.Length == 1 && Text[0] >= '\uE000' && Text[0] <= '\uF8FF')
             {
                 family = IconFont;
                 px *= 1.2f;
@@ -176,13 +268,13 @@ namespace Calculator
             Rectangle textRect = ClientRectangle;
             TextFormatFlags align = TextFormatFlags.HorizontalCenter;
             if (LeftAlign) { textRect = new Rectangle(14, 0, Width - 14, Height); align = TextFormatFlags.Left; }
-            using (var f = new Font(family, px, style, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, Text, f, textRect, fore,
-                    align | TextFormatFlags.VerticalCenter |
-                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            Font f = PaintCache.GetFont(family, px, style);
+            TextRenderer.DrawText(g, Text, f, textRect, fore,
+                align | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
 
-            if (Focused && ShowFocusCues)
-                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, r - 2)))
+            if (Focused && ShowFocusCues && Width > 8 && Height > 8)
+                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, cachedRadius - 2)))
                 using (var pen = new Pen(Kind == Kind.Equals ? Theme.EqText : Theme.EqNormal, 2f))
                     g.DrawPath(pen, ring);
         }
@@ -267,6 +359,7 @@ namespace Calculator
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            if (Width <= 0 || Height <= 0) return;
             Graphics g = e.Graphics;
             g.Clear(Theme.Back);
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
@@ -274,29 +367,37 @@ namespace Calculator
                                           TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
             int pad = Math.Max(8, Width / 28);
             int avail = Width - pad * 2 - RightInset;
+            if (avail <= 0) return;
 
             float small = Math.Max(11f, Height * 0.13f);
-            using (var f = new Font(FontFamilyName, small, FontStyle.Regular, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, expr, f, new Rectangle(pad, Height / 10, avail, (int)(small * 1.5f)),
-                    Theme.Dim, flags | TextFormatFlags.Top);
+            Font fs = PaintCache.GetFont(FontFamilyName, small, FontStyle.Regular);
+            TextRenderer.DrawText(g, expr, fs, new Rectangle(pad, Height / 10, avail, (int)(small * 1.5f)),
+                Theme.Dim, flags | TextFormatFlags.Top);
 
             if (hasMemory)
-                using (var f = new Font(FontFamilyName, small * 1.15f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "M", f, new Rectangle(pad, Height - (int)(small * 2.4f), (int)(small * 2f), (int)(small * 1.5f)),
-                        Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
-
-            float big = Math.Max(14f, Height * 0.42f);
-            Font fv = new Font(FontFamilyName, big, FontStyle.Bold, GraphicsUnit.Pixel);
-            while (big > 14f && TextRenderer.MeasureText(g, value, fv, new Size(int.MaxValue, int.MaxValue),
-                       TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width > avail)
             {
-                big -= 2f;
-                fv.Dispose();
-                fv = new Font(FontFamilyName, big, FontStyle.Bold, GraphicsUnit.Pixel);
+                Font fm = PaintCache.GetFont(FontFamilyName, small * 1.15f, FontStyle.Bold);
+                TextRenderer.DrawText(g, "M", fm, new Rectangle(pad, Height - (int)(small * 2.4f), (int)(small * 2f), (int)(small * 1.5f)),
+                    Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
             }
-            using (fv)
-                TextRenderer.DrawText(g, value, fv, new Rectangle(pad, 0, avail, Height - Height / 12),
-                    Theme.Text, flags | TextFormatFlags.Bottom);
+
+            const TextFormatFlags measureFlags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            var inf = new Size(int.MaxValue, int.MaxValue);
+            int big = Math.Max(14, (int)Math.Round(Height * 0.42f));
+            Font fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+            int textW = TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width;
+            if (textW > avail && big > 14)
+            {
+                big = Math.Max(14, (int)Math.Floor(big * (double)avail / textW));
+                fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                while (big > 14 && TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width > avail)
+                {
+                    big--;
+                    fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                }
+            }
+            TextRenderer.DrawText(g, value, fv, new Rectangle(pad, 0, avail, Height - Height / 12),
+                Theme.Text, flags | TextFormatFlags.Bottom);
         }
     }
 
@@ -356,8 +457,9 @@ namespace Calculator
 
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
+            if (e.Bounds.Width <= 0 || e.Bounds.Height <= 0) return;
             Graphics g = e.Graphics;
-            using (var back = new SolidBrush(Theme.Back)) g.FillRectangle(back, e.Bounds);
+            g.FillRectangle(PaintCache.GetBrush(Theme.Back), e.Bounds);
             if (e.Index < 0) return;
             var item = (HistoryItem)Items[e.Index];
 
@@ -366,7 +468,6 @@ namespace Calculator
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (var path = new GraphicsPath())
-                using (var br = new SolidBrush(Theme.FnHover))
                 {
                     int d = 8;
                     path.AddArc(r.X, r.Y, d, d, 180, 90);
@@ -374,7 +475,7 @@ namespace Calculator
                     path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
                     path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
                     path.CloseFigure();
-                    g.FillPath(br, path);
+                    g.FillPath(PaintCache.GetBrush(Theme.FnHover), path);
                 }
             }
 
@@ -384,10 +485,8 @@ namespace Calculator
             var inner = Rectangle.Inflate(r, -10, -6);
             float small = Math.Max(11f, r.Height * 0.20f);
             float big = Math.Max(14f, r.Height * 0.36f);
-            using (var f = new Font(FontFamilyName, small, FontStyle.Regular, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, item.Expression, f, inner, Theme.Dim, flags | TextFormatFlags.Top);
-            using (var f = new Font(FontFamilyName, big, FontStyle.Bold, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, item.ResultText, f, inner, Theme.Text, flags | TextFormatFlags.Bottom);
+            TextRenderer.DrawText(g, item.Expression, PaintCache.GetFont(FontFamilyName, small, FontStyle.Regular), inner, Theme.Dim, flags | TextFormatFlags.Top);
+            TextRenderer.DrawText(g, item.ResultText, PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold), inner, Theme.Text, flags | TextFormatFlags.Bottom);
         }
     }
 
@@ -712,9 +811,8 @@ namespace Calculator
         {
             if (historyList.Visible) return;
             var area = new Rectangle(0, historyHeader.Height, historyPanel.Width, historyPanel.Height - historyHeader.Height);
-            using (var f = new Font(family, 16f, FontStyle.Regular, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(e.Graphics, "Журнал пуст", f, area, theme.Dim,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(e.Graphics, "Журнал пуст", PaintCache.GetFont(family, 16f, FontStyle.Regular), area, theme.Dim,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
 
         void BuildMenus()
