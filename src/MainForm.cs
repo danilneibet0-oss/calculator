@@ -114,6 +114,35 @@ namespace Calculator
             new System.Collections.Generic.Dictionary<int, SolidBrush>();
         static readonly System.Collections.Generic.Dictionary<int, Pen> pens =
             new System.Collections.Generic.Dictionary<int, Pen>();
+        static readonly System.Collections.Generic.Dictionary<long, GraphicsPath> paths =
+            new System.Collections.Generic.Dictionary<long, GraphicsPath>();
+
+        public static GraphicsPath GetRoundPath(int width, int height, out int radius)
+        {
+            int r = (int)(Math.Min(width, height) * 0.11f) + 2;
+            int maxR = Math.Max(1, (Math.Min(width, height) - 2) / 2);
+            if (r > maxR) r = maxR;
+            radius = r;
+            long key = ((long)width << 32) | (uint)height;
+            GraphicsPath path;
+            if (!paths.TryGetValue(key, out path))
+            {
+                if (paths.Count >= 128)
+                {
+                    foreach (GraphicsPath old in paths.Values) old.Dispose();
+                    paths.Clear();
+                }
+                int d = r * 2;
+                path = new GraphicsPath();
+                path.AddArc(0, 0, d, d, 180, 90);
+                path.AddArc(width - 1 - d, 0, d, d, 270, 90);
+                path.AddArc(width - 1 - d, height - 1 - d, d, d, 0, 90);
+                path.AddArc(0, height - 1 - d, d, d, 90, 90);
+                path.CloseFigure();
+                paths[key] = path;
+            }
+            return path;
+        }
 
         public static Font GetFont(string family, float sizePx, FontStyle style)
         {
@@ -180,9 +209,6 @@ namespace Calculator
         /// <summary>Menu items: text starts at the left edge instead of the centre.</summary>
         public bool LeftAlign;
         bool hover, pressed;
-        GraphicsPath cachedPath;
-        Size cachedPathSize;
-        int cachedRadius;
 
         public CalcButton()
         {
@@ -192,16 +218,6 @@ namespace Calculator
             TabStop = true;
             AccessibleRole = AccessibleRole.PushButton;
             Cursor = Cursors.Default;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && cachedPath != null)
-            {
-                cachedPath.Dispose();
-                cachedPath = null;
-            }
-            base.Dispose(disposing);
         }
 
         protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -242,19 +258,11 @@ namespace Calculator
                 fore = Theme.EqNormal;
             }
 
-            if (cachedPath == null || cachedPathSize.Width != Width || cachedPathSize.Height != Height)
-            {
-                if (cachedPath != null) cachedPath.Dispose();
-                int r = (int)(Math.Min(Width, Height) * 0.11f) + 2;
-                int maxR = Math.Max(1, (Math.Min(Width, Height) - 2) / 2);
-                if (r > maxR) r = maxR;
-                cachedRadius = r;
-                cachedPathSize = Size;
-                cachedPath = Round(new Rectangle(0, 0, Width - 1, Height - 1), r);
-            }
-            g.FillPath(PaintCache.GetBrush(fill), cachedPath);
+            int r;
+            GraphicsPath path = PaintCache.GetRoundPath(Width, Height, out r);
+            g.FillPath(PaintCache.GetBrush(fill), path);
             if (!Theme.Dark && Kind != Kind.Equals && Kind != Kind.Memory)
-                g.DrawPath(PaintCache.GetPen(Theme.Border), cachedPath);
+                g.DrawPath(PaintCache.GetPen(Theme.Border), path);
 
             float px = Math.Max(10f, Math.Min(Height * 0.36f, Width * 0.30f));
             if (Kind == Kind.Memory) px = Math.Max(12f, Height * 0.46f);
@@ -274,7 +282,7 @@ namespace Calculator
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
 
             if (Focused && ShowFocusCues && Width > 8 && Height > 8)
-                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, cachedRadius - 2)))
+                using (GraphicsPath ring = Round(new Rectangle(3, 3, Width - 7, Height - 7), Math.Max(1, r - 2)))
                 using (var pen = new Pen(Kind == Kind.Equals ? Theme.EqText : Theme.EqNormal, 2f))
                     g.DrawPath(pen, ring);
         }
@@ -699,9 +707,20 @@ namespace Calculator
         static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1;
+        const int WVR_REDRAW = 0x0300;
         const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         const int ResizeBorder = 6;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000;   // WS_EX_COMPOSITED: paint the whole window tree in one atomic buffer
+                return cp;
+            }
+        }
 
         readonly CalcEngine engine = new CalcEngine();
         readonly SciEngine sci = new SciEngine();
@@ -1182,7 +1201,7 @@ namespace Calculator
                     Marshal.WriteInt32(m.LParam, 8, Marshal.ReadInt32(m.LParam, 8) - frame.Width);
                     Marshal.WriteInt32(m.LParam, 12, Marshal.ReadInt32(m.LParam, 12) - frame.Height);
                 }
-                m.Result = IntPtr.Zero;
+                m.Result = (IntPtr)WVR_REDRAW;
                 return;
             }
 
@@ -1190,9 +1209,11 @@ namespace Calculator
 
             if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
             {
-                Point p = PointToClient(Cursor.Position);
-                bool left = p.X < ResizeBorder, right = p.X >= ClientSize.Width - ResizeBorder;
-                bool top = p.Y < ResizeBorder, bottom = p.Y >= ClientSize.Height - ResizeBorder;
+                int border = Math.Max(ResizeBorder, (int)Math.Round(ResizeBorder * DeviceDpi / 96f));
+                long lp = m.LParam.ToInt64();
+                Point p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
+                bool left = p.X < border, right = p.X >= ClientSize.Width - border;
+                bool top = p.Y < border, bottom = p.Y >= ClientSize.Height - border;
                 if (top && left) m.Result = (IntPtr)HTTOPLEFT;
                 else if (top && right) m.Result = (IntPtr)HTTOPRIGHT;
                 else if (bottom && left) m.Result = (IntPtr)HTBOTTOMLEFT;
