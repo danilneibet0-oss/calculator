@@ -950,6 +950,374 @@ namespace Calculator
         }
     }
 
+    /// <summary>Owner-drawn single-HWND title bar: icon, title, pin, minimize, maximize/restore and close.
+    /// Returns HTTRANSPARENT on drag, top-resize and maximize-button areas so MainForm handles native
+    /// HTCAPTION, HTTOP* and Windows 11 Snap Layouts (HTMAXBUTTON).</summary>
+    sealed class CaptionBar : Control
+    {
+        const int WM_NCHITTEST = 0x0084;
+        const int HTTRANSPARENT = -1;
+
+        public Theme Theme;
+        public string FontFamilyName = "Segoe UI";
+        public Image AppIcon;
+        public Func<bool> IsWindowMaximized;
+        public Func<int> TopResizeBorder;
+        public Action PinClick, MinimizeClick, MaximizeClick, CloseClick;
+
+        // 0 = Pin, 1 = Minimize, 2 = Maximize/Restore, 3 = Close
+        readonly Rectangle[] rects = new Rectangle[4];
+        bool pinActive, maximized, maxNcHover, maxNcPressed;
+        int hotIndex = -1, pressedIndex = -1, focusedIndex = -1, tipIndex = -1;
+        readonly ToolTip tip = new ToolTip();
+
+        static readonly Color CloseHover = Color.FromArgb(0xC4, 0x2B, 0x1C);
+        static readonly Color ClosePress = Color.FromArgb(0xA8, 0x24, 0x17);
+
+        public CaptionBar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            TabStop = true;
+            Cursor = Cursors.Default;
+        }
+
+        public Rectangle MaxButtonRect { get { return rects[2]; } }
+
+        public bool IsClientButton(Point p)
+        {
+            return rects[0].Contains(p) || rects[1].Contains(p) || rects[3].Contains(p);
+        }
+
+        public void SetPinActive(bool active)
+        {
+            if (pinActive == active) return;
+            pinActive = active;
+            InvalidateButton(0);
+        }
+
+        public void SetMaximized(bool max)
+        {
+            if (maximized == max) return;
+            maximized = max;
+            InvalidateButton(2);
+        }
+
+        public void SetMaxNcState(bool hover, bool pressed)
+        {
+            if (maxNcHover == hover && maxNcPressed == pressed) return;
+            maxNcHover = hover;
+            maxNcPressed = pressed;
+            InvalidateButton(2);
+        }
+
+        int S(int px) { return (int)Math.Round(px * (DeviceDpi > 0 ? DeviceDpi : 96) / 96f); }
+
+        void ComputeBounds()
+        {
+            int w = ClientSize.Width, h = ClientSize.Height;
+            if (w <= 0 || h <= 0) return;
+            int btnW = S(46), pinW = S(40), pinX = S(128);
+            int closeX = w - btnW;
+            rects[3] = new Rectangle(closeX, 0, btnW, h);
+            rects[2] = new Rectangle(closeX - btnW, 0, btnW, h);
+            rects[1] = new Rectangle(closeX - btnW * 2, 0, btnW, h);
+            int clampedPinX = Math.Min(pinX, Math.Max(S(32), rects[1].Left - pinW - S(4)));
+            rects[0] = new Rectangle(clampedPinX, 0, pinW, h);
+        }
+
+        int HitClientButton(Point p)
+        {
+            if (rects[0].Contains(p)) return 0;
+            if (rects[1].Contains(p)) return 1;
+            if (rects[3].Contains(p)) return 3;
+            return -1;
+        }
+
+        void InvalidateButton(int index)
+        {
+            if (index >= 0 && index < 4 && !rects[index].IsEmpty) Invalidate(rects[index]);
+        }
+
+        void InvokeButton(int index)
+        {
+            if (index == 0 && PinClick != null) PinClick();
+            else if (index == 1 && MinimizeClick != null) MinimizeClick();
+            else if (index == 2 && MaximizeClick != null) MaximizeClick();
+            else if (index == 3 && CloseClick != null) CloseClick();
+        }
+
+        string ButtonTip(int index)
+        {
+            if (index == 0) return "Поверх всех окон (Ctrl+T)";
+            if (index == 1) return "Свернуть";
+            if (index == 2) return maximized ? "Восстановить" : "Развернуть";
+            if (index == 3) return "Закрыть";
+            return null;
+        }
+
+        string ButtonName(int index)
+        {
+            if (index == 0) return "Поверх всех окон";
+            if (index == 1) return "Свернуть";
+            if (index == 2) return maximized ? "Восстановить" : "Развернуть";
+            if (index == 3) return "Закрыть";
+            return "";
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                long lp = m.LParam.ToInt64();
+                Point p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
+                bool zoomed = IsWindowMaximized != null && IsWindowMaximized();
+                int topBorder = !zoomed && TopResizeBorder != null ? TopResizeBorder() : 0;
+                if (p.Y < topBorder || !IsClientButton(p))
+                {
+                    m.Result = (IntPtr)HTTRANSPARENT;
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            ComputeBounds();
+            base.OnResize(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (Width <= 0 || Height <= 0 || Theme == null) return;
+            if (rects[3].IsEmpty) ComputeBounds();
+            Graphics g = e.Graphics;
+            Rectangle clip = e.ClipRectangle;
+            g.FillRectangle(PaintCache.GetBrush(Theme.Back), clip);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+            int iconSz = S(16);
+            int iconX = S(10), iconY = (Height - iconSz) / 2;
+            var iconRect = new Rectangle(iconX, iconY, iconSz, iconSz);
+            if (AppIcon != null && iconRect.IntersectsWith(clip))
+            {
+                InterpolationMode prev = g.InterpolationMode;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.DrawImage(AppIcon, iconRect);
+                g.InterpolationMode = prev;
+            }
+
+            int titleX = S(32);
+            int titleW = Math.Max(0, rects[0].Left - titleX - S(4));
+            var titleRect = new Rectangle(titleX, 0, titleW, Height);
+            if (titleW > 0 && titleRect.IntersectsWith(clip))
+            {
+                Font tf = PaintCache.GetFont(FontFamilyName, S(12), FontStyle.Regular);
+                TextRenderer.DrawText(g, "Калькулятор", tf, titleRect, Theme.Text,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+            }
+
+            bool showFocus = Focused && ShowFocusCues;
+            string[] glyphs = { "\uE718", "\uE921", maximized ? "\uE923" : "\uE922", "\uE8BB" };
+            for (int i = 0; i < 4; i++)
+            {
+                Rectangle r = rects[i];
+                if (r.Width <= 2 || r.Height <= 2 || !r.IntersectsWith(clip)) continue;
+                bool isHot = i == 2 ? maxNcHover : (pressedIndex < 0 || pressedIndex == i) && i == hotIndex;
+                bool isPress = i == 2 ? (maxNcPressed && maxNcHover) : (i == pressedIndex && isHot);
+                bool focused = showFocus && focusedIndex == i;
+
+                if (i == 3 && (isHot || isPress))
+                {
+                    int rad;
+                    GraphicsPath path = PaintCache.GetRoundPath(r.Width, r.Height, out rad);
+                    g.TranslateTransform(r.X, r.Y);
+                    g.FillPath(PaintCache.GetBrush(isPress ? ClosePress : CloseHover), path);
+                    g.TranslateTransform(-r.X, -r.Y);
+                    float px = Math.Max(10f, Math.Min(r.Height * 0.36f, r.Width * 0.30f)) * 1.2f;
+                    Font f = PaintCache.GetFont(CalcButton.IconFont, px, FontStyle.Regular);
+                    TextRenderer.DrawText(g, glyphs[i], f, r, Color.White,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                }
+                else
+                {
+                    CalcButton.DrawFace(g, r, glyphs[i], Kind.Function, Theme, FontFamilyName,
+                        true, isHot, isPress, i == 0 && pinActive, false, focused);
+                }
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int idx = HitClientButton(e.Location);
+            if (idx != hotIndex)
+            {
+                int old = hotIndex;
+                hotIndex = idx;
+                InvalidateButton(old);
+                InvalidateButton(hotIndex);
+            }
+            if (idx != tipIndex)
+            {
+                tipIndex = idx;
+                string text = ButtonTip(idx);
+                if (text != null) tip.SetToolTip(this, text);
+                else tip.SetToolTip(this, "");
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            int oldHot = hotIndex, oldPress = pressedIndex;
+            hotIndex = pressedIndex = tipIndex = -1;
+            tip.SetToolTip(this, "");
+            InvalidateButton(oldHot);
+            if (oldPress != oldHot) InvalidateButton(oldPress);
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitClientButton(e.Location);
+                if (idx >= 0)
+                {
+                    pressedIndex = idx;
+                    InvalidateButton(idx);
+                }
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            int idx = pressedIndex;
+            if (idx >= 0)
+            {
+                pressedIndex = -1;
+                InvalidateButton(idx);
+                if (e.Button == MouseButtons.Left && HitClientButton(e.Location) == idx)
+                    InvokeButton(idx);
+            }
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            bool reverse = (ModifierKeys & Keys.Shift) != 0;
+            focusedIndex = reverse ? 3 : 0;
+            InvalidateButton(focusedIndex);
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            int old = focusedIndex;
+            focusedIndex = -1;
+            InvalidateButton(old);
+            base.OnLostFocus(e);
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            if ((keyData & Keys.KeyCode) == Keys.Tab && (keyData & (Keys.Control | Keys.Alt)) == 0)
+            {
+                int next = focusedIndex + ((keyData & Keys.Shift) != 0 ? -1 : 1);
+                if (next >= 0 && next < 4)
+                {
+                    int old = focusedIndex;
+                    focusedIndex = next;
+                    InvalidateButton(old);
+                    InvalidateButton(focusedIndex);
+                    return true;
+                }
+            }
+            return base.ProcessDialogKey(keyData);
+        }
+
+        protected override void OnKeyPress(KeyPressEventArgs e)
+        {
+            if ((e.KeyChar == ' ' || e.KeyChar == '\r') && focusedIndex >= 0 && focusedIndex < 4)
+            {
+                e.Handled = true;
+                InvokeButton(focusedIndex);
+            }
+            base.OnKeyPress(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                tip.Dispose();
+                if (AppIcon != null) { AppIcon.Dispose(); AppIcon = null; }
+            }
+            base.Dispose(disposing);
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new CaptionAccessibleObject(this);
+        }
+
+        sealed class CaptionAccessibleObject : ControlAccessibleObject
+        {
+            readonly CaptionBar bar;
+            public CaptionAccessibleObject(CaptionBar owner) : base(owner) { bar = owner; }
+            public override int GetChildCount() { return 4; }
+            public override AccessibleObject GetChild(int index)
+            {
+                return index >= 0 && index < 4 ? new ButtonAccessibleObject(bar, index, this) : null;
+            }
+            public override AccessibleObject HitTest(int x, int y)
+            {
+                Point p = bar.PointToClient(new Point(x, y));
+                for (int i = 0; i < 4; i++)
+                    if (bar.rects[i].Contains(p)) return GetChild(i);
+                return base.HitTest(x, y);
+            }
+            public override AccessibleObject GetFocused()
+            {
+                return bar.Focused && bar.focusedIndex >= 0 ? GetChild(bar.focusedIndex) : base.GetFocused();
+            }
+        }
+
+        sealed class ButtonAccessibleObject : AccessibleObject
+        {
+            readonly CaptionBar bar;
+            readonly int index;
+            readonly AccessibleObject parent;
+            public ButtonAccessibleObject(CaptionBar bar, int index, AccessibleObject parent)
+            {
+                this.bar = bar;
+                this.index = index;
+                this.parent = parent;
+            }
+            public override AccessibleObject Parent { get { return parent; } }
+            public override string Name { get { return bar.ButtonName(index); } }
+            public override AccessibleRole Role { get { return AccessibleRole.PushButton; } }
+            public override Rectangle Bounds { get { return bar.RectangleToScreen(bar.rects[index]); } }
+            public override AccessibleStates State
+            {
+                get
+                {
+                    AccessibleStates s = AccessibleStates.Focusable;
+                    if (bar.Focused && bar.focusedIndex == index) s |= AccessibleStates.Focused;
+                    bool pressed = index == 2 ? bar.maxNcPressed : bar.pressedIndex == index;
+                    if (pressed) s |= AccessibleStates.Pressed;
+                    return s;
+                }
+            }
+            public override void DoDefaultAction() { bar.InvokeButton(index); }
+        }
+    }
+
     sealed class MainForm : Form
     {
         [DllImport("dwmapi.dll")]
@@ -957,12 +1325,6 @@ namespace Calculator
 
         [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
         static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
-
-        [DllImport("user32.dll")]
-        static extern bool ReleaseCapture();
-
-        [DllImport("user32.dll")]
-        static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")]
         static extern bool IsZoomed(IntPtr hWnd);
@@ -976,11 +1338,23 @@ namespace Calculator
         [DllImport("user32.dll")]
         static extern int GetSystemMetricsForDpi(int nIndex, int dpi);
 
+        [DllImport("user32.dll")]
+        static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
         [DllImport("shell32.dll")]
         static extern IntPtr SHAppBarMessage(int dwMessage, ref APPBARDATA pData);
 
         [StructLayout(LayoutKind.Sequential)]
         struct RECT { public int Left, Top, Right, Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct TRACKMOUSEEVENT
+        {
+            public int cbSize;
+            public uint dwFlags;
+            public IntPtr hwndTrack;
+            public uint dwHoverTime;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         struct APPBARDATA
@@ -994,10 +1368,14 @@ namespace Calculator
         }
 
         const int WM_WINDOWPOSCHANGED = 0x0047;
-        const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1;
+        const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84;
+        const int WM_NCMOUSEMOVE = 0xA0, WM_NCLBUTTONDOWN = 0xA1, WM_NCLBUTTONUP = 0xA2, WM_NCLBUTTONDBLCLK = 0xA3;
+        const int WM_LBUTTONUP = 0x0202, WM_NCMOUSELEAVE = 0x02A2;
         const int WVR_REDRAW = 0x0300;
-        const int HTCLIENT = 1, HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
+        const int HTCLIENT = 1, HTCAPTION = 2, HTMAXBUTTON = 9;
+        const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
+        const uint TME_LEAVE = 0x00000002, TME_NONCLIENT = 0x00000010;
         const int SM_CXSIZEFRAME = 32, SM_CYSIZEFRAME = 33, SM_CXPADDEDBORDER = 92;
         const int ABM_GETSTATE = 4, ABM_GETTASKBARPOS = 5, ABS_AUTOHIDE = 1;
         const int ABE_LEFT = 0, ABE_TOP = 1, ABE_RIGHT = 2, ABE_BOTTOM = 3;
@@ -1025,13 +1403,11 @@ namespace Calculator
         readonly BufferedPanel historyHeader = new BufferedPanel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle, pinToggle;
+        CalcButton clearHistoryButton, historyToggle;
         KeyCell memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
         RootPanel rootPanel;
         KeypadGrid memStrip, sciPanel, mainGrid;
-        readonly Control[] captionRight = new Control[3];
-        readonly Rectangle[] captionBounds = new Rectangle[3];
         readonly System.Collections.Generic.Dictionary<string, KeyCell> sciButtons =
             new System.Collections.Generic.Dictionary<string, KeyCell>();
         readonly Settings settings;
@@ -1040,10 +1416,10 @@ namespace Calculator
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
         readonly BufferedPanel navPanel = new BufferedPanel();
         readonly ScrollList navList = new ScrollList();
-        readonly Label navHeader = new Label(), navSection = new Label(), navOther = new Label(), captionTitle = new Label();
-        readonly BufferedPanel captionBar = new BufferedPanel();
-        readonly PictureBox captionIcon = new PictureBox();
-        CalcButton navToggle, plainButton, sciButton, minButton, maxButton, closeButton;
+        readonly Label navHeader = new Label(), navSection = new Label(), navOther = new Label();
+        readonly CaptionBar captionBar = new CaptionBar();
+        CalcButton navToggle, plainButton, sciButton;
+        bool maxNcHover, maxNcPressed, trackingNcMouse;
         ConverterForm converter;
         HistoryItem historyMenuTarget;
         int shownHistoryVersion = -1;
@@ -1179,19 +1555,6 @@ namespace Calculator
             buttons.Add(historyToggle);
             tips.SetToolTip(historyToggle, "Журнал (Ctrl+H)");
 
-            pinToggle = new CalcButton
-            {
-                Text = "",
-                Kind = Kind.Function,
-                Size = new Size(40, 34),
-                Location = new Point(170, 8),
-                FontFamilyName = family,
-                Active = TopMost
-            };
-            pinToggle.Click += delegate { ToggleTopMost(); };
-            buttons.Add(pinToggle);
-            tips.SetToolTip(pinToggle, "Поверх всех окон (Ctrl+T)");
-
             BuildHistoryPanel();
             BuildMenus();
             BuildNavPanel();
@@ -1205,7 +1568,6 @@ namespace Calculator
             Controls.Add(captionBar);      // added last, so the caption takes the top edge first
 
             historyToggle.AccessibleName = "Журнал";
-            pinToggle.AccessibleName = "Поверх всех окон";
             foreach (CalcButton b in buttons)
             {
                 string spoken;
@@ -1399,64 +1761,25 @@ namespace Calculator
             ActiveControl = null;
         }
 
-        /// <summary>Own title bar: icon, name, pin, then minimize, maximize and close. The window keeps its frame for resizing.</summary>
+        /// <summary>Own title bar: icon, name, pin, then minimize, maximize and close. Single HWND with native HTCAPTION and HTMAXBUTTON.</summary>
         void BuildCaption()
         {
             captionBar.Dock = DockStyle.Top;
             captionBar.Height = 32;
-
-            if (Icon != null) captionIcon.Image = Icon.ToBitmap();
-            captionIcon.SizeMode = PictureBoxSizeMode.Zoom;
-            captionIcon.Size = new Size(16, 16);
-            captionIcon.Location = new Point(10, 8);
-
-            captionTitle.Text = "Калькулятор";
-            captionTitle.Font = new Font(family, 12f, FontStyle.Regular, GraphicsUnit.Pixel);
-            captionTitle.TextAlign = ContentAlignment.MiddleLeft;
-            captionTitle.Location = new Point(32, 0);
-            captionTitle.Size = new Size(92, 32);
-
-            pinToggle.Location = new Point(128, 0);
-            pinToggle.Size = new Size(40, 32);
-
-            minButton = CaptionButton("\uE921", delegate { WindowState = FormWindowState.Minimized; });
-            maxButton = CaptionButton("\uE922", delegate { ToggleMaximize(); });
-            closeButton = CaptionButton("\uE8BB", delegate { Close(); });
-
-            captionBar.Controls.AddRange(new Control[] { captionIcon, captionTitle, pinToggle, minButton, maxButton, closeButton });
-            captionBar.Resize += delegate { LayoutCaption(); };
-            Resize += delegate { maxButton.Text = WindowState == FormWindowState.Maximized ? "\uE923" : "\uE922"; };
-            foreach (Control c in new Control[] { captionBar, captionIcon, captionTitle })
-            {
-                c.MouseDown += DragCaption;
-                c.DoubleClick += delegate { ToggleMaximize(); };
-            }
-            LayoutCaption();
+            captionBar.FontFamilyName = family;
+            if (Icon != null) captionBar.AppIcon = Icon.ToBitmap();
+            captionBar.SetPinActive(TopMost);
+            captionBar.IsWindowMaximized = delegate { return IsHandleCreated && IsZoomed(Handle); };
+            captionBar.TopResizeBorder = GetTopResizeBorder;
+            captionBar.PinClick = ToggleTopMost;
+            captionBar.MinimizeClick = delegate { WindowState = FormWindowState.Minimized; };
+            captionBar.MaximizeClick = ToggleMaximize;
+            captionBar.CloseClick = Close;
         }
 
-        CalcButton CaptionButton(string icon, EventHandler onClick)
+        int GetTopResizeBorder()
         {
-            var b = new CalcButton { Text = icon, Kind = Kind.Function, Size = new Size(46, 32), FontFamilyName = family };
-            b.Click += onClick;
-            buttons.Add(b);
-            return b;
-        }
-
-        void LayoutCaption()
-        {
-            int w = closeButton.Width, h = captionBar.Height;
-            int closeX = captionBar.Width - w;
-            captionRight[0] = closeButton; captionBounds[0] = new Rectangle(closeX, 0, w, h);
-            captionRight[1] = maxButton;   captionBounds[1] = new Rectangle(closeX - w, 0, w, h);
-            captionRight[2] = minButton;   captionBounds[2] = new Rectangle(closeX - w * 2, 0, w, h);
-            Win32Layout.Apply(captionBar, captionRight, captionBounds, 3);
-        }
-
-        void DragCaption(object sender, MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Left) return;
-            ReleaseCapture();
-            SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            return Math.Max(5, GetFrameBorder().Height - 2);
         }
 
         void ToggleMaximize()
@@ -1548,6 +1871,59 @@ namespace Calculator
                 return;
             }
 
+            if (m.Msg == WM_NCLBUTTONDOWN || m.Msg == WM_NCLBUTTONDBLCLK)
+            {
+                if ((int)m.WParam == HTMAXBUTTON)
+                {
+                    // Handle maximize clicks ourselves so DefWindowProc never flashes a classic caption button.
+                    maxNcPressed = true;
+                    captionBar.SetMaxNcState(true, true);
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+            }
+            else if (m.Msg == WM_NCLBUTTONUP)
+            {
+                if ((int)m.WParam == HTMAXBUTTON && maxNcPressed)
+                {
+                    maxNcPressed = false;
+                    captionBar.SetMaxNcState(maxNcHover, false);
+                    ToggleMaximize();
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+            }
+            else if (m.Msg == WM_NCMOUSEMOVE)
+            {
+                bool overMax = (int)m.WParam == HTMAXBUTTON;
+                if (overMax != maxNcHover || (overMax && !trackingNcMouse))
+                {
+                    maxNcHover = overMax;
+                    captionBar.SetMaxNcState(maxNcHover, maxNcPressed && maxNcHover);
+                    if (overMax && !trackingNcMouse)
+                    {
+                        var tme = new TRACKMOUSEEVENT
+                        {
+                            cbSize = Marshal.SizeOf(typeof(TRACKMOUSEEVENT)),
+                            dwFlags = TME_NONCLIENT | TME_LEAVE,
+                            hwndTrack = Handle
+                        };
+                        trackingNcMouse = TrackMouseEvent(ref tme);
+                    }
+                }
+            }
+            else if (m.Msg == WM_NCMOUSELEAVE)
+            {
+                trackingNcMouse = false;
+                maxNcHover = maxNcPressed = false;
+                captionBar.SetMaxNcState(false, false);
+            }
+            else if (m.Msg == WM_LBUTTONUP && maxNcPressed)
+            {
+                maxNcPressed = false;
+                captionBar.SetMaxNcState(false, false);
+            }
+
             base.WndProc(ref m);
 
             if (m.Msg == WM_WINDOWPOSCHANGED)
@@ -1555,21 +1931,34 @@ namespace Calculator
                 // WinForms computes restored bounds using the standard caption height, which grows the window on restore.
                 if (RestoredBoundsSpecifiedField != null)
                     try { RestoredBoundsSpecifiedField.SetValue(this, BoundsSpecified.None); } catch { }
+                captionBar.SetMaximized(IsZoomed(Handle));
                 return;
             }
 
-            if (m.Msg == WM_NCHITTEST && m.Result == (IntPtr)HTCLIENT && !IsZoomed(Handle))
+            if (m.Msg == WM_NCHITTEST && m.Result == (IntPtr)HTCLIENT)
             {
-                Size frame = GetFrameBorder();
-                int topBorder = Math.Max(5, frame.Height - 2);
-                int corner = Math.Max(12, frame.Width * 2);
                 long lp = m.LParam.ToInt64();
                 Point p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
-                if (p.Y < topBorder)
+                bool zoomed = IsZoomed(Handle);
+                if (!zoomed)
                 {
-                    if (p.X < corner) m.Result = (IntPtr)HTTOPLEFT;
-                    else if (p.X >= ClientSize.Width - corner) m.Result = (IntPtr)HTTOPRIGHT;
-                    else m.Result = (IntPtr)HTTOP;
+                    Size frame = GetFrameBorder();
+                    int topBorder = Math.Max(5, frame.Height - 2);
+                    int corner = Math.Max(12, frame.Width * 2);
+                    if (p.Y < topBorder)
+                    {
+                        if (p.X < corner) m.Result = (IntPtr)HTTOPLEFT;
+                        else if (p.X >= ClientSize.Width - corner) m.Result = (IntPtr)HTTOPRIGHT;
+                        else m.Result = (IntPtr)HTTOP;
+                        return;
+                    }
+                }
+
+                if (captionBar.Visible && captionBar.Bounds.Contains(p))
+                {
+                    var cp = new Point(p.X - captionBar.Left, p.Y - captionBar.Top);
+                    if (captionBar.MaxButtonRect.Contains(cp)) m.Result = (IntPtr)HTMAXBUTTON;
+                    else if (!captionBar.IsClientButton(cp)) m.Result = (IntPtr)HTCAPTION;
                 }
             }
         }
@@ -1712,8 +2101,7 @@ namespace Calculator
         void ToggleTopMost()
         {
             TopMost = !TopMost;
-            pinToggle.Active = TopMost;
-            pinToggle.Invalidate();
+            captionBar.SetPinActive(TopMost);
             ActiveControl = null;
         }
 
@@ -1856,9 +2244,8 @@ namespace Calculator
             navSection.ForeColor = theme.Dim;
             navOther.BackColor = theme.Back;
             navOther.ForeColor = theme.Dim;
+            captionBar.Theme = theme;
             captionBar.BackColor = theme.Back;
-            captionTitle.BackColor = theme.Back;
-            captionTitle.ForeColor = theme.Text;
             navList.ThumbColor = theme.Dark ? Color.FromArgb(0x4D, 0x4D, 0x4D) : Color.FromArgb(0xC1, 0xC1, 0xC1);
             navList.Invalidate();
             if (historyList.IsHandleCreated) ApplyListTheme();
@@ -2009,7 +2396,7 @@ namespace Calculator
             else if (c == '-') k = "−";
             else if (c == '*') k = "×";
             else if (c == '/') k = "÷";
-            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused) && !memStrip.Focused && !sciPanel.Focused && !mainGrid.Focused)) k = "=";   // Enter presses a focused key instead
+            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused) && !captionBar.Focused && !memStrip.Focused && !sciPanel.Focused && !mainGrid.Focused)) k = "=";   // Enter presses a focused key instead
             else if (c == ',' || c == '.') k = ",";
             else if (c == '%') k = "%";
             else if (c == '\b') k = "⌫";
