@@ -964,7 +964,7 @@ namespace Calculator
         static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1;
-        const int WVR_REDRAW = 0x0300;
+        const int WVR_REDRAW = 0x0300, WVR_VALIDRECTS = 0x0400;
         const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         const int ResizeBorder = 6;
@@ -1427,6 +1427,33 @@ namespace Calculator
             WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
         }
 
+        /// <summary>
+        /// When the left or top edge moves, Windows copies the old client pixels to the new top-left corner
+        /// before the window repaints, so the content jumps for a frame. Marking a single identical source and
+        /// destination pixel as the only "valid" area turns that copy into a no-op and the whole window is repainted.
+        /// </summary>
+        static bool SuppressOriginBlit(IntPtr lParam)
+        {
+            // NCCALCSIZE_PARAMS on input: rgrc[0] new window rect, rgrc[1] old window rect, rgrc[2] old client rect.
+            int newL = Marshal.ReadInt32(lParam, 0), newT = Marshal.ReadInt32(lParam, 4);
+            int newR = Marshal.ReadInt32(lParam, 8), newB = Marshal.ReadInt32(lParam, 12);
+            int oldL = Marshal.ReadInt32(lParam, 16), oldT = Marshal.ReadInt32(lParam, 20);
+            int oldR = Marshal.ReadInt32(lParam, 24), oldB = Marshal.ReadInt32(lParam, 28);
+            bool resized = newR - newL != oldR - oldL || newB - newT != oldB - oldT;
+            bool originMoved = newL != oldL || newT != oldT;
+            if (!resized || !originMoved) return false;   // plain moves and right/bottom drags keep the default path
+
+            // rgrc[0] already holds the final client rect; rgrc[1] (destination) and rgrc[2] (source) become 1x1.
+            for (int offset = 16; offset <= 32; offset += 16)
+            {
+                Marshal.WriteInt32(lParam, offset, newL);
+                Marshal.WriteInt32(lParam, offset + 4, newT);
+                Marshal.WriteInt32(lParam, offset + 8, newL + 1);
+                Marshal.WriteInt32(lParam, offset + 12, newT + 1);
+            }
+            return true;
+        }
+
         protected override void WndProc(ref Message m)
         {
             // Removing the caption: the client area takes the whole window, the frame remains for resizing.
@@ -1440,7 +1467,7 @@ namespace Calculator
                     Marshal.WriteInt32(m.LParam, 8, Marshal.ReadInt32(m.LParam, 8) - frame.Width);
                     Marshal.WriteInt32(m.LParam, 12, Marshal.ReadInt32(m.LParam, 12) - frame.Height);
                 }
-                m.Result = (IntPtr)WVR_REDRAW;
+                m.Result = (IntPtr)(SuppressOriginBlit(m.LParam) ? WVR_VALIDRECTS : WVR_REDRAW);
                 return;
             }
 
