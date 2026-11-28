@@ -1475,6 +1475,12 @@ namespace Calculator
         [DllImport("dwmapi.dll")]
         static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
+        [DllImport("dwmapi.dll")]
+        static extern int DwmFlush();
+
+        [DllImport("dwmapi.dll")]
+        static extern int DwmIsCompositionEnabled(out bool enabled);
+
         [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
         static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
 
@@ -1492,6 +1498,9 @@ namespace Calculator
 
         [DllImport("user32.dll")]
         static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+        [DllImport("user32.dll")]
+        static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
 
         [DllImport("shell32.dll")]
         static extern IntPtr SHAppBarMessage(int dwMessage, ref APPBARDATA pData);
@@ -1519,11 +1528,13 @@ namespace Calculator
             public IntPtr lParam;
         }
 
-        const int WM_WINDOWPOSCHANGED = 0x0047;
+        const int WM_WINDOWPOSCHANGING = 0x0046, WM_WINDOWPOSCHANGED = 0x0047;
         const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84;
         const int WM_NCMOUSEMOVE = 0xA0, WM_NCLBUTTONDOWN = 0xA1, WM_NCLBUTTONUP = 0xA2, WM_NCLBUTTONDBLCLK = 0xA3;
-        const int WM_LBUTTONUP = 0x0202, WM_NCMOUSELEAVE = 0x02A2;
-        const int WVR_REDRAW = 0x0300;
+        const int WM_LBUTTONUP = 0x0202, WM_SIZING = 0x0214, WM_ENTERSIZEMOVE = 0x0231, WM_EXITSIZEMOVE = 0x0232;
+        const int WM_NCMOUSELEAVE = 0x02A2;
+        const uint SWP_NOSIZE = 0x0001, SWP_NOCOPYBITS = 0x0100;
+        const uint RDW_INVALIDATE = 0x0001, RDW_ERASE = 0x0004, RDW_ALLCHILDREN = 0x0080, RDW_UPDATENOW = 0x0100;
         const int HTCLIENT = 1, HTCAPTION = 2, HTMAXBUTTON = 9;
         const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
@@ -1531,6 +1542,7 @@ namespace Calculator
         const int SM_CXSIZEFRAME = 32, SM_CYSIZEFRAME = 33, SM_CXPADDEDBORDER = 92;
         const int ABM_GETSTATE = 4, ABM_GETTASKBARPOS = 5, ABS_AUTOHIDE = 1;
         const int ABE_LEFT = 0, ABE_TOP = 1, ABE_RIGHT = 2, ABE_BOTTOM = 3;
+        static readonly int WindowPosFlagsOffset = IntPtr.Size * 2 + 16;
 
         static readonly System.Reflection.FieldInfo RestoredBoundsSpecifiedField =
             typeof(Form).GetField("restoredWindowBoundsSpecified",
@@ -1561,6 +1573,8 @@ namespace Calculator
         int sciHeight;
         readonly Control[] layoutCtrls = new Control[7];
         readonly Rectangle[] layoutBounds = new Rectangle[7];
+        bool deferChildRedraw;
+        Rectangle lastSizingRect;
         KeypadGrid memStrip, sciPanel, mainGrid;
         readonly System.Collections.Generic.Dictionary<string, KeyCell> sciButtons =
             new System.Collections.Generic.Dictionary<string, KeyCell>();
@@ -1636,7 +1650,7 @@ namespace Calculator
             Text = "Калькулятор";
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(340, 552);   // 340x520 content plus the 32px custom caption bar
+            Size = SizeFromClientSize(new Size(340, 552));   // 340x520 content + 32px custom caption + native DWM resize frame
             MinimumSize = new Size(342, 474);  // includes the native invisible DWM resize frame on left, right and bottom
             StartPosition = FormStartPosition.CenterScreen;
             settings = Settings.Load();
@@ -1943,7 +1957,7 @@ namespace Calculator
             layoutCtrls[n] = mainGrid;
             layoutBounds[n++] = new Rectangle(innerX, bodyTop + displayH + memH + sciH, innerW, gridH);
 
-            Win32Layout.Apply(this, layoutCtrls, layoutBounds, n);
+            Win32Layout.Apply(this, layoutCtrls, layoutBounds, n, deferChildRedraw);
         }
 
         int GetTopResizeBorder()
@@ -2002,9 +2016,42 @@ namespace Calculator
             else if (abd.uEdge == ABE_RIGHT && right >= mon.Right) Marshal.WriteInt32(lParam, 8, right - 1);
         }
 
+        static void SyncWithDwm()
+        {
+            try
+            {
+                bool enabled;
+                if (DwmIsCompositionEnabled(out enabled) == 0 && enabled) DwmFlush();
+            }
+            catch { }
+        }
+
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_NCCALCSIZE)
+            if (m.Msg == WM_ENTERSIZEMOVE || m.Msg == WM_EXITSIZEMOVE)
+            {
+                lastSizingRect = Rectangle.Empty;
+            }
+            else if (m.Msg == WM_SIZING)
+            {
+                var proposed = Rectangle.FromLTRB(
+                    Marshal.ReadInt32(m.LParam, 0), Marshal.ReadInt32(m.LParam, 4),
+                    Marshal.ReadInt32(m.LParam, 8), Marshal.ReadInt32(m.LParam, 12));
+                if (proposed != lastSizingRect && proposed != Bounds)
+                {
+                    lastSizingRect = proposed;
+                    // Align SetWindowPos + synchronous repaint with the start of a fresh DWM VSync frame
+                    // so left/top edge drags present atomically without jitter, just like bottom-right drags.
+                    SyncWithDwm();
+                }
+            }
+            else if (m.Msg == WM_WINDOWPOSCHANGING)
+            {
+                uint flags = (uint)Marshal.ReadInt32(m.LParam, WindowPosFlagsOffset);
+                if ((flags & SWP_NOSIZE) == 0)
+                    Marshal.WriteInt32(m.LParam, WindowPosFlagsOffset, (int)(flags | SWP_NOCOPYBITS));
+            }
+            else if (m.Msg == WM_NCCALCSIZE)
             {
                 if (IsIconic(Handle))
                 {
@@ -2014,17 +2061,8 @@ namespace Calculator
 
                 // Both wParam == 0 (RECT*) and wParam != 0 (NCCALCSIZE_PARAMS*, starts with rgrc[0])
                 // carry the proposed window rectangle in the first 16 bytes of lParam.
-                int origLeft = Marshal.ReadInt32(m.LParam, 0);
                 int origTop = Marshal.ReadInt32(m.LParam, 4);
-                int origRight = Marshal.ReadInt32(m.LParam, 8);
                 int origBottom = Marshal.ReadInt32(m.LParam, 12);
-                bool resized = false;
-                if (m.WParam != IntPtr.Zero)
-                {
-                    int oldW = Marshal.ReadInt32(m.LParam, 24) - Marshal.ReadInt32(m.LParam, 16);
-                    int oldH = Marshal.ReadInt32(m.LParam, 28) - Marshal.ReadInt32(m.LParam, 20);
-                    resized = origRight - origLeft != oldW || origBottom - origTop != oldH;
-                }
 
                 // Keep the native DPI-aware left, right and bottom DWM resize borders so Windows 11 Snap / Split Screen
                 // and rounded corners align accurately, and strip only the native title bar from the top edge.
@@ -2036,7 +2074,28 @@ namespace Calculator
                 Marshal.WriteInt32(m.LParam, 4, maximized ? origTop + frameY : origTop);
                 if (maximized) TrimAutoHideTaskbar(m.LParam);
 
-                m.Result = (m.WParam != IntPtr.Zero && resized) ? (IntPtr)WVR_REDRAW : IntPtr.Zero;
+                // Return 0 (never WVR_REDRAW): on Windows 10/11 with an inset left border, non-zero WVR_* causes
+                // win32k to shift untouched child HWNDs left by frameX on every resize. Stale-pixel copying is
+                // already suppressed via SWP_NOCOPYBITS in WM_WINDOWPOSCHANGING.
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            else if (m.Msg == WM_WINDOWPOSCHANGED)
+            {
+                uint flags = (uint)Marshal.ReadInt32(m.LParam, WindowPosFlagsOffset);
+                bool sized = (flags & SWP_NOSIZE) == 0 && !IsIconic(Handle);
+                deferChildRedraw = sized;
+                try { base.WndProc(ref m); }
+                finally { deferChildRedraw = false; }
+
+                // WinForms computes restored bounds using the standard caption height, which grows the window on restore.
+                if (RestoredBoundsSpecifiedField != null)
+                    try { RestoredBoundsSpecifiedField.SetValue(this, BoundsSpecified.None); } catch { }
+                captionBar.SetMaximized(IsZoomed(Handle));
+
+                // Paint the new layout synchronously before returning so DWM never composites a moved frame with old pixels.
+                if (sized && Visible)
+                    RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN);
                 return;
             }
 
@@ -2094,15 +2153,6 @@ namespace Calculator
             }
 
             base.WndProc(ref m);
-
-            if (m.Msg == WM_WINDOWPOSCHANGED)
-            {
-                // WinForms computes restored bounds using the standard caption height, which grows the window on restore.
-                if (RestoredBoundsSpecifiedField != null)
-                    try { RestoredBoundsSpecifiedField.SetValue(this, BoundsSpecified.None); } catch { }
-                captionBar.SetMaximized(IsZoomed(Handle));
-                return;
-            }
 
             if (m.Msg == WM_NCHITTEST && m.Result == (IntPtr)HTCLIENT)
             {
