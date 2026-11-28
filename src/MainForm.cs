@@ -197,6 +197,16 @@ namespace Calculator
         }
     }
 
+    /// <summary>Reuses one GDI HDC across multiple TextRenderer calls to avoid per-button GetHdc/ReleaseHdc flushes.</summary>
+    sealed class SharedHdc : IDeviceContext
+    {
+        readonly IntPtr hdc;
+        public SharedHdc(IntPtr hdc) { this.hdc = hdc; }
+        public IntPtr GetHdc() { return hdc; }
+        public void ReleaseHdc() { }
+        public void Dispose() { }
+    }
+
     /// <summary>Flat rounded button that never takes keyboard focus.</summary>
     sealed class CalcButton : Control
     {
@@ -240,8 +250,16 @@ namespace Calculator
             string fontFamilyName, bool enabled, bool hover, bool pressed, bool active, bool leftAlign, bool showFocus)
         {
             if (rect.Width <= 2 || rect.Height <= 2) return;
+            Color fore;
+            DrawChrome(g, rect, kind, theme, enabled, hover, pressed, active, showFocus, out fore);
+            DrawLabel(g, rect, text, kind, fore, fontFamilyName, leftAlign);
+        }
 
-            Color fill, fore = theme.Text;
+        internal static void DrawChrome(Graphics g, Rectangle rect, Kind kind, Theme theme,
+            bool enabled, bool hover, bool pressed, bool active, bool showFocus, out Color fore)
+        {
+            Color fill;
+            fore = theme.Text;
             switch (kind)
             {
                 case Kind.Equals:
@@ -274,6 +292,15 @@ namespace Calculator
                 g.DrawPath(PaintCache.GetPen(theme.Border), path);
             if (rect.X != 0 || rect.Y != 0) g.TranslateTransform(-rect.X, -rect.Y);
 
+            if (showFocus && rect.Width > 8 && rect.Height > 8)
+                using (GraphicsPath ring = Round(new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 7, rect.Height - 7), Math.Max(1, r - 2)))
+                using (var pen = new Pen(kind == Kind.Equals ? theme.EqText : theme.EqNormal, 2f))
+                    g.DrawPath(pen, ring);
+        }
+
+        internal static void DrawLabel(IDeviceContext dc, Rectangle rect, string text, Kind kind, Color fore,
+            string fontFamilyName, bool leftAlign)
+        {
             float px = Math.Max(10f, Math.Min(rect.Height * 0.36f, rect.Width * 0.30f));
             if (kind == Kind.Memory) px = Math.Max(12f, rect.Height * 0.46f);
             FontStyle style = kind == Kind.Number ? FontStyle.Bold : FontStyle.Regular;
@@ -287,14 +314,9 @@ namespace Calculator
             TextFormatFlags align = TextFormatFlags.HorizontalCenter;
             if (leftAlign) { textRect = new Rectangle(rect.X + 14, rect.Y, rect.Width - 14, rect.Height); align = TextFormatFlags.Left; }
             Font f = PaintCache.GetFont(family, px, style);
-            TextRenderer.DrawText(g, text, f, textRect, fore,
+            TextRenderer.DrawText(dc, text, f, textRect, fore,
                 align | TextFormatFlags.VerticalCenter |
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-
-            if (showFocus && rect.Width > 8 && rect.Height > 8)
-                using (GraphicsPath ring = Round(new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 7, rect.Height - 7), Math.Max(1, r - 2)))
-                using (var pen = new Pen(kind == Kind.Equals ? theme.EqText : theme.EqNormal, 2f))
-                    g.DrawPath(pen, ring);
         }
 
         protected override void OnEnabledChanged(EventArgs e)
@@ -860,6 +882,8 @@ namespace Calculator
         public string FontFamilyName = "Segoe UI";
         readonly int cols, rows;
         readonly KeyCell[] cells;
+        readonly Color[] labelColors;
+        readonly bool[] drawMask;
         int count;
         int hotIndex = -1, pressedIndex = -1, focusedIndex = -1;
 
@@ -868,6 +892,8 @@ namespace Calculator
             cols = columns;
             this.rows = rows;
             cells = new KeyCell[columns * rows];
+            labelColors = new Color[columns * rows];
+            drawMask = new bool[columns * rows];
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
             TabStop = true;
@@ -939,6 +965,35 @@ namespace Calculator
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
             bool showFocus = Focused && ShowFocusCues;
+            if (clip.X == 0 && clip.Y == 0)
+            {
+                // Two-pass batching: draw all rounded paths in GDI+, then draw all labels in a single HDC checkout.
+                bool any = false;
+                for (int i = 0; i < count; i++)
+                {
+                    KeyCell c = cells[i];
+                    bool draw = c.Bounds.Width > 2 && c.Bounds.Height > 2 && c.Bounds.IntersectsWith(clip);
+                    drawMask[i] = draw;
+                    if (!draw) continue;
+                    any = true;
+                    bool isHot = (pressedIndex < 0 || pressedIndex == i) && i == hotIndex;
+                    bool isPressed = i == pressedIndex && isHot;
+                    CalcButton.DrawChrome(g, c.Bounds, c.Kind, Theme,
+                        c.Enabled, isHot, isPressed, c.Active, showFocus && i == focusedIndex, out labelColors[i]);
+                }
+                if (!any) return;
+                IntPtr hdc = g.GetHdc();
+                try
+                {
+                    var dc = new SharedHdc(hdc);
+                    for (int i = 0; i < count; i++)
+                        if (drawMask[i])
+                            CalcButton.DrawLabel(dc, cells[i].Bounds, cells[i].Text, cells[i].Kind, labelColors[i], FontFamilyName, false);
+                }
+                finally { g.ReleaseHdc(hdc); }
+                return;
+            }
+
             for (int i = 0; i < count; i++)
             {
                 KeyCell c = cells[i];
