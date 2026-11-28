@@ -578,7 +578,8 @@ namespace Calculator
     {
         public BufferedPanel()
         {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         }
 
         protected override CreateParams CreateParams
@@ -963,18 +964,54 @@ namespace Calculator
         [DllImport("user32.dll")]
         static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        static extern bool IsZoomed(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        static extern int GetSystemMetricsForDpi(int nIndex, int dpi);
+
+        [DllImport("shell32.dll")]
+        static extern IntPtr SHAppBarMessage(int dwMessage, ref APPBARDATA pData);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct APPBARDATA
+        {
+            public int cbSize;
+            public IntPtr hWnd;
+            public int uCallbackMessage;
+            public int uEdge;
+            public RECT rc;
+            public IntPtr lParam;
+        }
+
+        const int WM_WINDOWPOSCHANGED = 0x0047;
         const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_NCLBUTTONDOWN = 0xA1;
-        const int WVR_REDRAW = 0x0300, WVR_VALIDRECTS = 0x0400;
-        const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
+        const int WVR_REDRAW = 0x0300;
+        const int HTCLIENT = 1, HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
-        const int ResizeBorder = 6;
+        const int SM_CXSIZEFRAME = 32, SM_CYSIZEFRAME = 33, SM_CXPADDEDBORDER = 92;
+        const int ABM_GETSTATE = 4, ABM_GETTASKBARPOS = 5, ABS_AUTOHIDE = 1;
+        const int ABE_LEFT = 0, ABE_TOP = 1, ABE_RIGHT = 2, ABE_BOTTOM = 3;
+
+        static readonly System.Reflection.FieldInfo RestoredBoundsSpecifiedField =
+            typeof(Form).GetField("restoredWindowBoundsSpecified",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         protected override CreateParams CreateParams
         {
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x02000000;   // WS_EX_COMPOSITED: paint the whole window tree in one atomic buffer
+                cp.Style |= 0x02000000;   // WS_CLIPCHILDREN: never paint over child controls during resize
                 return cp;
             }
         }
@@ -1070,15 +1107,15 @@ namespace Calculator
             Text = "Калькулятор";
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            Padding = new Padding(6);   // the frame width, where the window can be resized
-            ClientSize = new Size(352, 564);   // 340x520 content plus the padding and the custom caption bar
-            MinimumSize = new Size(330, 474);
+            ClientSize = new Size(340, 552);   // 340x520 content plus the 32px custom caption bar
+            MinimumSize = new Size(342, 474);  // includes the native invisible DWM resize frame on left, right and bottom
             StartPosition = FormStartPosition.CenterScreen;
             settings = Settings.Load();
             TopMost = settings.TopMost;
             sci.Angle = settings.Angle;
             KeyPreview = true;
-            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Opaque, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
             display.FontFamilyName = family;
@@ -1427,67 +1464,113 @@ namespace Calculator
             WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
         }
 
-        /// <summary>
-        /// When the left or top edge moves, Windows copies the old client pixels to the new top-left corner
-        /// before the window repaints, so the content jumps for a frame. Marking a single identical source and
-        /// destination pixel as the only "valid" area turns that copy into a no-op and the whole window is repainted.
-        /// </summary>
-        static bool SuppressOriginBlit(IntPtr lParam)
+        Size GetFrameBorder()
         {
-            // NCCALCSIZE_PARAMS on input: rgrc[0] new window rect, rgrc[1] old window rect, rgrc[2] old client rect.
-            int newL = Marshal.ReadInt32(lParam, 0), newT = Marshal.ReadInt32(lParam, 4);
-            int newR = Marshal.ReadInt32(lParam, 8), newB = Marshal.ReadInt32(lParam, 12);
-            int oldL = Marshal.ReadInt32(lParam, 16), oldT = Marshal.ReadInt32(lParam, 20);
-            int oldR = Marshal.ReadInt32(lParam, 24), oldB = Marshal.ReadInt32(lParam, 28);
-            bool resized = newR - newL != oldR - oldL || newB - newT != oldB - oldT;
-            bool originMoved = newL != oldL || newT != oldT;
-            if (!resized || !originMoved) return false;   // plain moves and right/bottom drags keep the default path
-
-            // rgrc[0] already holds the final client rect; rgrc[1] (destination) and rgrc[2] (source) become 1x1.
-            for (int offset = 16; offset <= 32; offset += 16)
+            int dpi = DeviceDpi > 0 ? DeviceDpi : 96;
+            try
             {
-                Marshal.WriteInt32(lParam, offset, newL);
-                Marshal.WriteInt32(lParam, offset + 4, newT);
-                Marshal.WriteInt32(lParam, offset + 8, newL + 1);
-                Marshal.WriteInt32(lParam, offset + 12, newT + 1);
+                int pad = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                return new Size(
+                    GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + pad,
+                    GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + pad);
             }
-            return true;
+            catch (EntryPointNotFoundException)
+            {
+                int pad = GetSystemMetrics(SM_CXPADDEDBORDER);
+                return new Size(
+                    GetSystemMetrics(SM_CXSIZEFRAME) + pad,
+                    GetSystemMetrics(SM_CYSIZEFRAME) + pad);
+            }
+        }
+
+        protected override Size SizeFromClientSize(Size clientSize)
+        {
+            Size frame = GetFrameBorder();
+            return new Size(clientSize.Width + frame.Width * 2, clientSize.Height + frame.Height);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (theme != null) e.Graphics.FillRectangle(PaintCache.GetBrush(theme.Back), e.ClipRectangle);
+        }
+
+        /// <summary>Leaves a 1px edge on a maximized window when the taskbar auto-hides so it can still pop up.</summary>
+        void TrimAutoHideTaskbar(IntPtr lParam)
+        {
+            var abd = new APPBARDATA { cbSize = Marshal.SizeOf(typeof(APPBARDATA)) };
+            if ((SHAppBarMessage(ABM_GETSTATE, ref abd).ToInt64() & ABS_AUTOHIDE) == 0) return;
+            if (SHAppBarMessage(ABM_GETTASKBARPOS, ref abd) == IntPtr.Zero) return;
+
+            Rectangle mon = Screen.FromHandle(Handle).Bounds;
+            int left = Marshal.ReadInt32(lParam, 0), top = Marshal.ReadInt32(lParam, 4);
+            int right = Marshal.ReadInt32(lParam, 8), bottom = Marshal.ReadInt32(lParam, 12);
+            if (abd.uEdge == ABE_BOTTOM && bottom >= mon.Bottom) Marshal.WriteInt32(lParam, 12, bottom - 1);
+            else if (abd.uEdge == ABE_TOP && top <= mon.Top) Marshal.WriteInt32(lParam, 4, top + 1);
+            else if (abd.uEdge == ABE_LEFT && left <= mon.Left) Marshal.WriteInt32(lParam, 0, left + 1);
+            else if (abd.uEdge == ABE_RIGHT && right >= mon.Right) Marshal.WriteInt32(lParam, 8, right - 1);
         }
 
         protected override void WndProc(ref Message m)
         {
-            // Removing the caption: the client area takes the whole window, the frame remains for resizing.
-            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            if (m.Msg == WM_NCCALCSIZE)
             {
-                if (WindowState == FormWindowState.Maximized)
+                if (IsIconic(Handle))
                 {
-                    Size frame = SystemInformation.FrameBorderSize;
-                    Marshal.WriteInt32(m.LParam, 0, Marshal.ReadInt32(m.LParam, 0) + frame.Width);
-                    Marshal.WriteInt32(m.LParam, 4, Marshal.ReadInt32(m.LParam, 4) + frame.Height);
-                    Marshal.WriteInt32(m.LParam, 8, Marshal.ReadInt32(m.LParam, 8) - frame.Width);
-                    Marshal.WriteInt32(m.LParam, 12, Marshal.ReadInt32(m.LParam, 12) - frame.Height);
+                    base.WndProc(ref m);
+                    return;
                 }
-                m.Result = (IntPtr)(SuppressOriginBlit(m.LParam) ? WVR_VALIDRECTS : WVR_REDRAW);
+
+                // Both wParam == 0 (RECT*) and wParam != 0 (NCCALCSIZE_PARAMS*, starts with rgrc[0])
+                // carry the proposed window rectangle in the first 16 bytes of lParam.
+                int origLeft = Marshal.ReadInt32(m.LParam, 0);
+                int origTop = Marshal.ReadInt32(m.LParam, 4);
+                int origRight = Marshal.ReadInt32(m.LParam, 8);
+                int origBottom = Marshal.ReadInt32(m.LParam, 12);
+                bool resized = false;
+                if (m.WParam != IntPtr.Zero)
+                {
+                    int oldW = Marshal.ReadInt32(m.LParam, 24) - Marshal.ReadInt32(m.LParam, 16);
+                    int oldH = Marshal.ReadInt32(m.LParam, 28) - Marshal.ReadInt32(m.LParam, 20);
+                    resized = origRight - origLeft != oldW || origBottom - origTop != oldH;
+                }
+
+                // Keep the native DPI-aware left, right and bottom DWM resize borders so Windows 11 Snap / Split Screen
+                // and rounded corners align accurately, and strip only the native title bar from the top edge.
+                base.WndProc(ref m);
+
+                int newBottom = Marshal.ReadInt32(m.LParam, 12);
+                int frameY = Math.Max(0, origBottom - newBottom);
+                bool maximized = IsZoomed(Handle);
+                Marshal.WriteInt32(m.LParam, 4, maximized ? origTop + frameY : origTop);
+                if (maximized) TrimAutoHideTaskbar(m.LParam);
+
+                m.Result = (m.WParam != IntPtr.Zero && resized) ? (IntPtr)WVR_REDRAW : IntPtr.Zero;
                 return;
             }
 
             base.WndProc(ref m);
 
-            if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
+            if (m.Msg == WM_WINDOWPOSCHANGED)
             {
-                int border = Math.Max(ResizeBorder, (int)Math.Round(ResizeBorder * DeviceDpi / 96f));
+                // WinForms computes restored bounds using the standard caption height, which grows the window on restore.
+                if (RestoredBoundsSpecifiedField != null)
+                    try { RestoredBoundsSpecifiedField.SetValue(this, BoundsSpecified.None); } catch { }
+                return;
+            }
+
+            if (m.Msg == WM_NCHITTEST && m.Result == (IntPtr)HTCLIENT && !IsZoomed(Handle))
+            {
+                Size frame = GetFrameBorder();
+                int topBorder = Math.Max(5, frame.Height - 2);
+                int corner = Math.Max(12, frame.Width * 2);
                 long lp = m.LParam.ToInt64();
                 Point p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
-                bool left = p.X < border, right = p.X >= ClientSize.Width - border;
-                bool top = p.Y < border, bottom = p.Y >= ClientSize.Height - border;
-                if (top && left) m.Result = (IntPtr)HTTOPLEFT;
-                else if (top && right) m.Result = (IntPtr)HTTOPRIGHT;
-                else if (bottom && left) m.Result = (IntPtr)HTBOTTOMLEFT;
-                else if (bottom && right) m.Result = (IntPtr)HTBOTTOMRIGHT;
-                else if (left) m.Result = (IntPtr)HTLEFT;
-                else if (right) m.Result = (IntPtr)HTRIGHT;
-                else if (top) m.Result = (IntPtr)HTTOP;
-                else if (bottom) m.Result = (IntPtr)HTBOTTOM;
+                if (p.Y < topBorder)
+                {
+                    if (p.X < corner) m.Result = (IntPtr)HTTOPLEFT;
+                    else if (p.X >= ClientSize.Width - corner) m.Result = (IntPtr)HTTOPRIGHT;
+                    else m.Result = (IntPtr)HTTOP;
+                }
             }
         }
 
@@ -1652,7 +1735,9 @@ namespace Calculator
             int w = Math.Max(MinimumSize.Width, (int)Math.Round(settings.Width * k));
             int h = Math.Max(MinimumSize.Height, (int)Math.Round(settings.Height * k));
             var target = new Rectangle(settings.Left, settings.Top, w, h);
-            var titleBar = new Rectangle(target.Left, target.Top, target.Width, Math.Max(1, (int)(40 * k)));
+            Size frame = GetFrameBorder();
+            var titleBar = new Rectangle(target.Left + frame.Width, target.Top,
+                Math.Max(1, target.Width - frame.Width * 2), Math.Max(1, (int)(40 * k)));
             foreach (Screen s in Screen.AllScreens)
             {
                 if (!s.WorkingArea.IntersectsWith(titleBar)) continue;
@@ -1785,7 +1870,12 @@ namespace Calculator
         void SetDarkTitle()
         {
             int v = theme.Dark ? 1 : 0;
-            try { DwmSetWindowAttribute(Handle, 20, ref v, 4); } catch { }
+            try
+            {
+                if (DwmSetWindowAttribute(Handle, 20, ref v, 4) != 0)
+                    DwmSetWindowAttribute(Handle, 19, ref v, 4);
+            }
+            catch { }
         }
 
         protected override void OnHandleCreated(EventArgs e)
