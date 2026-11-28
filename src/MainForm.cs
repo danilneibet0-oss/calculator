@@ -343,32 +343,57 @@ namespace Calculator
         }
     }
 
-    /// <summary>Two-line display: dim expression on top, large value below.</summary>
+    /// <summary>Two-line display with owner-drawn menu and journal buttons (single HWND, no child button lag on resize).</summary>
     sealed class DisplayBox : Control
     {
         public Theme Theme;
         public string FontFamilyName = "Segoe UI";
+        public Action NavClick, HistoryClick;
         string expr = "", value = "0";
-        /// <summary>Space kept free at the right so the text does not run under the journal button.</summary>
-        public int RightInset;
         bool hasMemory;
+
+        // 0 = Menu, 1 = History
+        readonly Rectangle[] btnRects = new Rectangle[2];
+        int hotIndex = -1, pressedIndex = -1, focusedIndex = -1, tipIndex = -1;
+        readonly ToolTip tip = new ToolTip();
 
         public DisplayBox()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque |
-                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
-            TabStop = false;
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            TabStop = true;
+            Cursor = Cursors.Default;
         }
 
-        protected override CreateParams CreateParams
+        int S(int px) { return (int)Math.Round(px * (DeviceDpi > 0 ? DeviceDpi : 96) / 96f); }
+
+        void ComputeButtons()
         {
-            get
-            {
-                CreateParams cp = base.CreateParams;
-                cp.Style |= 0x02000000;   // WS_CLIPCHILDREN
-                return cp;
-            }
+            int w = ClientSize.Width;
+            if (w <= 0) return;
+            int bw = S(40), bh = S(34), padX = S(6), padY = S(8);
+            btnRects[0] = new Rectangle(padX, padY, bw, bh);
+            btnRects[1] = new Rectangle(Math.Max(padX + bw + S(4), w - bw - padX), padY, bw, bh);
+        }
+
+        int HitButton(Point p)
+        {
+            if (btnRects[0].Contains(p)) return 0;
+            if (btnRects[1].Contains(p)) return 1;
+            return -1;
+        }
+
+        public bool IsOverButton(Point p) { return HitButton(p) >= 0; }
+
+        void InvalidateButton(int index)
+        {
+            if (index >= 0 && index < 2 && !btnRects[index].IsEmpty) Invalidate(btnRects[index]);
+        }
+
+        void InvokeButton(int index)
+        {
+            if (index == 0 && NavClick != null) NavClick();
+            else if (index == 1 && HistoryClick != null) HistoryClick();
         }
 
         public void SetText(string expression, string val)
@@ -385,47 +410,228 @@ namespace Calculator
             Invalidate();
         }
 
+        protected override void OnResize(EventArgs e)
+        {
+            ComputeButtons();
+            base.OnResize(e);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            if (Width <= 0 || Height <= 0) return;
+            if (Width <= 0 || Height <= 0 || Theme == null) return;
+            if (btnRects[0].IsEmpty) ComputeButtons();
             Graphics g = e.Graphics;
-            g.Clear(Theme.Back);
+            Rectangle clip = e.ClipRectangle;
+            g.FillRectangle(PaintCache.GetBrush(Theme.Back), clip);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+            int rightInset = btnRects[1].Width + S(6);
             const TextFormatFlags flags = TextFormatFlags.Right | TextFormatFlags.NoPadding |
                                           TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
             int pad = Math.Max(8, Width / 28);
-            int avail = Width - pad * 2 - RightInset;
-            if (avail <= 0) return;
-
-            float small = Math.Max(11f, Height * 0.13f);
-            Font fs = PaintCache.GetFont(FontFamilyName, small, FontStyle.Regular);
-            TextRenderer.DrawText(g, expr, fs, new Rectangle(pad, Height / 10, avail, (int)(small * 1.5f)),
-                Theme.Dim, flags | TextFormatFlags.Top);
-
-            if (hasMemory)
+            int avail = Width - pad * 2 - rightInset;
+            if (avail > 0)
             {
-                Font fm = PaintCache.GetFont(FontFamilyName, small * 1.15f, FontStyle.Bold);
-                TextRenderer.DrawText(g, "M", fm, new Rectangle(pad, Height - (int)(small * 2.4f), (int)(small * 2f), (int)(small * 1.5f)),
-                    Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
+                float small = Math.Max(11f, Height * 0.13f);
+                Font fs = PaintCache.GetFont(FontFamilyName, small, FontStyle.Regular);
+                TextRenderer.DrawText(g, expr, fs, new Rectangle(pad, Height / 10, avail, (int)(small * 1.5f)),
+                    Theme.Dim, flags | TextFormatFlags.Top);
+
+                if (hasMemory)
+                {
+                    Font fm = PaintCache.GetFont(FontFamilyName, small * 1.15f, FontStyle.Bold);
+                    TextRenderer.DrawText(g, "M", fm, new Rectangle(pad, Height - (int)(small * 2.4f), (int)(small * 2f), (int)(small * 1.5f)),
+                        Theme.EqNormal, TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.Top);
+                }
+
+                const TextFormatFlags measureFlags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+                var inf = new Size(int.MaxValue, int.MaxValue);
+                int big = Math.Max(14, (int)Math.Round(Height * 0.42f));
+                Font fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                int textW = TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width;
+                if (textW > avail && big > 14)
+                {
+                    big = Math.Max(14, (int)Math.Floor(big * (double)avail / textW));
+                    fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                    while (big > 14 && TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width > avail)
+                    {
+                        big--;
+                        fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                    }
+                }
+                TextRenderer.DrawText(g, value, fv, new Rectangle(pad, 0, avail, Height - Height / 12),
+                    Theme.Text, flags | TextFormatFlags.Bottom);
             }
 
-            const TextFormatFlags measureFlags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
-            var inf = new Size(int.MaxValue, int.MaxValue);
-            int big = Math.Max(14, (int)Math.Round(Height * 0.42f));
-            Font fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
-            int textW = TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width;
-            if (textW > avail && big > 14)
+            bool showFocus = Focused && ShowFocusCues;
+            string[] glyphs = { "\uE700", "\uE81C" };
+            for (int i = 0; i < 2; i++)
             {
-                big = Math.Max(14, (int)Math.Floor(big * (double)avail / textW));
-                fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
-                while (big > 14 && TextRenderer.MeasureText(g, value, fv, inf, measureFlags).Width > avail)
+                Rectangle r = btnRects[i];
+                if (r.Width <= 2 || r.Height <= 2 || !r.IntersectsWith(clip)) continue;
+                bool isHot = (pressedIndex < 0 || pressedIndex == i) && i == hotIndex;
+                bool isPress = i == pressedIndex && isHot;
+                CalcButton.DrawFace(g, r, glyphs[i], Kind.Function, Theme, FontFamilyName,
+                    true, isHot, isPress, false, false, showFocus && focusedIndex == i);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int idx = HitButton(e.Location);
+            if (idx != hotIndex)
+            {
+                int old = hotIndex;
+                hotIndex = idx;
+                InvalidateButton(old);
+                InvalidateButton(hotIndex);
+            }
+            if (idx != tipIndex)
+            {
+                tipIndex = idx;
+                tip.SetToolTip(this, idx == 0 ? "Меню" : idx == 1 ? "Журнал (Ctrl+H)" : "");
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            int oldHot = hotIndex, oldPress = pressedIndex;
+            hotIndex = pressedIndex = tipIndex = -1;
+            tip.SetToolTip(this, "");
+            InvalidateButton(oldHot);
+            if (oldPress != oldHot) InvalidateButton(oldPress);
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitButton(e.Location);
+                if (idx >= 0)
                 {
-                    big--;
-                    fv = PaintCache.GetFont(FontFamilyName, big, FontStyle.Bold);
+                    pressedIndex = idx;
+                    InvalidateButton(idx);
                 }
             }
-            TextRenderer.DrawText(g, value, fv, new Rectangle(pad, 0, avail, Height - Height / 12),
-                Theme.Text, flags | TextFormatFlags.Bottom);
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            int idx = pressedIndex;
+            if (idx >= 0)
+            {
+                pressedIndex = -1;
+                InvalidateButton(idx);
+                if (e.Button == MouseButtons.Left && HitButton(e.Location) == idx)
+                    InvokeButton(idx);
+            }
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            bool reverse = (ModifierKeys & Keys.Shift) != 0;
+            focusedIndex = reverse ? 1 : 0;
+            InvalidateButton(focusedIndex);
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            int old = focusedIndex;
+            focusedIndex = -1;
+            InvalidateButton(old);
+            base.OnLostFocus(e);
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            if ((keyData & Keys.KeyCode) == Keys.Tab && (keyData & (Keys.Control | Keys.Alt)) == 0)
+            {
+                int next = focusedIndex + ((keyData & Keys.Shift) != 0 ? -1 : 1);
+                if (next >= 0 && next < 2)
+                {
+                    int old = focusedIndex;
+                    focusedIndex = next;
+                    InvalidateButton(old);
+                    InvalidateButton(focusedIndex);
+                    return true;
+                }
+            }
+            return base.ProcessDialogKey(keyData);
+        }
+
+        protected override void OnKeyPress(KeyPressEventArgs e)
+        {
+            if ((e.KeyChar == ' ' || e.KeyChar == '\r') && focusedIndex >= 0 && focusedIndex < 2)
+            {
+                e.Handled = true;
+                InvokeButton(focusedIndex);
+            }
+            base.OnKeyPress(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) tip.Dispose();
+            base.Dispose(disposing);
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new DisplayAccessibleObject(this);
+        }
+
+        sealed class DisplayAccessibleObject : ControlAccessibleObject
+        {
+            readonly DisplayBox box;
+            public DisplayAccessibleObject(DisplayBox owner) : base(owner) { box = owner; }
+            public override int GetChildCount() { return 2; }
+            public override AccessibleObject GetChild(int index)
+            {
+                return index >= 0 && index < 2 ? new ButtonAccessibleObject(box, index, this) : null;
+            }
+            public override AccessibleObject HitTest(int x, int y)
+            {
+                int idx = box.HitButton(box.PointToClient(new Point(x, y)));
+                return idx >= 0 ? GetChild(idx) : base.HitTest(x, y);
+            }
+            public override AccessibleObject GetFocused()
+            {
+                return box.Focused && box.focusedIndex >= 0 ? GetChild(box.focusedIndex) : base.GetFocused();
+            }
+        }
+
+        sealed class ButtonAccessibleObject : AccessibleObject
+        {
+            readonly DisplayBox box;
+            readonly int index;
+            readonly AccessibleObject parent;
+            public ButtonAccessibleObject(DisplayBox box, int index, AccessibleObject parent)
+            {
+                this.box = box;
+                this.index = index;
+                this.parent = parent;
+            }
+            public override AccessibleObject Parent { get { return parent; } }
+            public override string Name { get { return index == 0 ? "Меню" : "Журнал"; } }
+            public override AccessibleRole Role { get { return AccessibleRole.PushButton; } }
+            public override Rectangle Bounds { get { return box.RectangleToScreen(box.btnRects[index]); } }
+            public override AccessibleStates State
+            {
+                get
+                {
+                    AccessibleStates s = AccessibleStates.Focusable;
+                    if (box.Focused && box.focusedIndex == index) s |= AccessibleStates.Focused;
+                    if (box.pressedIndex == index) s |= AccessibleStates.Pressed;
+                    return s;
+                }
+            }
+            public override void DoDefaultAction() { box.InvokeButton(index); }
         }
     }
 
@@ -532,10 +738,11 @@ namespace Calculator
         static extern bool EndDeferWindowPos(IntPtr hWinPosInfo);
 
         const uint SWP_NOZORDER = 0x0004;
+        const uint SWP_NOREDRAW = 0x0008;
         const uint SWP_NOACTIVATE = 0x0010;
         const uint SWP_NOCOPYBITS = 0x0100;
 
-        public static void Apply(Control parent, Control[] controls, Rectangle[] bounds, int count)
+        public static void Apply(Control parent, Control[] controls, Rectangle[] bounds, int count, bool noRedraw = false)
         {
             int changed = 0;
             bool canDefer = parent.IsHandleCreated;
@@ -548,6 +755,7 @@ namespace Calculator
 
             if (canDefer)
             {
+                uint flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS | (noRedraw ? SWP_NOREDRAW : 0);
                 IntPtr hdwp = BeginDeferWindowPos(changed);
                 if (hdwp != IntPtr.Zero)
                 {
@@ -556,7 +764,7 @@ namespace Calculator
                         Rectangle b = bounds[i];
                         if (controls[i].Bounds == b) continue;
                         hdwp = DeferWindowPos(hdwp, controls[i].Handle, IntPtr.Zero,
-                            b.X, b.Y, b.Width, b.Height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+                            b.X, b.Y, b.Width, b.Height, flags);
                         if (hdwp == IntPtr.Zero) break;
                     }
                     if (hdwp != IntPtr.Zero && EndDeferWindowPos(hdwp)) return;
@@ -891,62 +1099,6 @@ namespace Calculator
             {
                 if (grid.cells[index].Enabled && grid.cells[index].Click != null) grid.cells[index].Click();
             }
-        }
-    }
-
-    /// <summary>Stacks display (21%), memory strip, optional scientific panel and main keypad (79%).</summary>
-    sealed class RootPanel : BufferedPanel
-    {
-        readonly Control display, memStrip, sciPanel, grid;
-        readonly Control[] scratchCtrls = new Control[4];
-        readonly Rectangle[] scratchBounds = new Rectangle[4];
-        int sciHeight;
-
-        public int SciHeight
-        {
-            get { return sciHeight; }
-            set { if (sciHeight != value) { sciHeight = value; PerformLayout(); } }
-        }
-
-        public RootPanel(Control display, Control memStrip, Control sciPanel, Control grid)
-        {
-            this.display = display;
-            this.memStrip = memStrip;
-            this.sciPanel = sciPanel;
-            this.grid = grid;
-            Controls.AddRange(new[] { display, memStrip, sciPanel, grid });
-        }
-
-        protected override void OnLayout(LayoutEventArgs e)
-        {
-            int x = Padding.Left, y = Padding.Top;
-            int w = ClientSize.Width - Padding.Horizontal;
-            int h = ClientSize.Height - Padding.Vertical;
-            if (w <= 0 || h <= 0) return;
-
-            int memH = (int)Math.Round(28f * DeviceDpi / 96f);
-            int sciH = sciPanel.Visible ? sciHeight : 0;
-            int avail = Math.Max(0, h - memH - sciH);
-            int displayH = (int)Math.Round(avail * 0.21f);
-            int gridH = Math.Max(0, avail - displayH);
-
-            int n = 0;
-            scratchCtrls[n] = display;
-            scratchBounds[n++] = new Rectangle(x, y, w, Math.Max(1, displayH));
-
-            scratchCtrls[n] = memStrip;
-            scratchBounds[n++] = new Rectangle(x, y + displayH, w, Math.Max(1, memH));
-
-            if (sciH > 0)
-            {
-                scratchCtrls[n] = sciPanel;
-                scratchBounds[n++] = new Rectangle(x, y + displayH + memH, w, sciH);
-            }
-
-            scratchCtrls[n] = grid;
-            scratchBounds[n++] = new Rectangle(x, y + displayH + memH + sciH, w, Math.Max(1, gridH));
-
-            Win32Layout.Apply(this, scratchCtrls, scratchBounds, n);
         }
     }
 
@@ -1403,22 +1555,23 @@ namespace Calculator
         readonly BufferedPanel historyHeader = new BufferedPanel();
         readonly Label historyTitle = new Label();
         readonly HistoryList historyList = new HistoryList();
-        CalcButton clearHistoryButton, historyToggle;
+        CalcButton clearHistoryButton;
         KeyCell memClear, memRecall, percentButton;
         const int SciPanelHeight = 3 * 40;   // logical pixels the function panel adds to the window
-        RootPanel rootPanel;
+        int sciHeight;
+        readonly Control[] layoutCtrls = new Control[7];
+        readonly Rectangle[] layoutBounds = new Rectangle[7];
         KeypadGrid memStrip, sciPanel, mainGrid;
         readonly System.Collections.Generic.Dictionary<string, KeyCell> sciButtons =
             new System.Collections.Generic.Dictionary<string, KeyCell>();
         readonly Settings settings;
-        readonly ToolTip tips = new ToolTip();
         readonly ContextMenuStrip displayMenu = new ContextMenuStrip();
         readonly ContextMenuStrip historyMenu = new ContextMenuStrip();
         readonly BufferedPanel navPanel = new BufferedPanel();
         readonly ScrollList navList = new ScrollList();
         readonly Label navHeader = new Label(), navSection = new Label(), navOther = new Label();
         readonly CaptionBar captionBar = new CaptionBar();
-        CalcButton navToggle, plainButton, sciButton;
+        CalcButton plainButton, sciButton;
         bool maxNcHover, maxNcPressed, trackingNcMouse;
         ConverterForm converter;
         HistoryItem historyMenuTarget;
@@ -1495,6 +1648,8 @@ namespace Calculator
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
             display.FontFamilyName = family;
+            display.NavClick = ToggleNav;
+            display.HistoryClick = ToggleHistory;
 
             memStrip = new KeypadGrid(5, 1) { FontFamilyName = family };
             string[] memKeys = { "MC", "MR", "M+", "M−", "MS" };
@@ -1522,52 +1677,13 @@ namespace Calculator
                     if (key == "%") percentButton = cell;
                 }
 
-            rootPanel = new RootPanel(display, memStrip, sciPanel, mainGrid)
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(4, 0, 4, 4)
-            };
-
-            navToggle = new CalcButton
-            {
-                Text = "\uE700",
-                Kind = Kind.Function,
-                Size = new Size(40, 34),
-                Location = new Point(6, 8),
-                FontFamilyName = family
-            };
-            navToggle.Click += delegate { ToggleNav(); };
-            display.Controls.Add(navToggle);
-            buttons.Add(navToggle);
-            tips.SetToolTip(navToggle, "Меню");
-
-            historyToggle = new CalcButton
-            {
-                Text = "",
-                Kind = Kind.Function,
-                Size = new Size(40, 34),
-                Location = new Point(50, 8),
-                FontFamilyName = family
-            };
-            historyToggle.Click += delegate { ToggleHistory(); };
-            display.RightInset = historyToggle.Width + 6;
-            display.Controls.Add(historyToggle);
-            buttons.Add(historyToggle);
-            tips.SetToolTip(historyToggle, "Журнал (Ctrl+H)");
-
             BuildHistoryPanel();
             BuildMenus();
             BuildNavPanel();
             BuildCaption();
-            display.Resize += delegate { LayoutTopRow(); };
-            LayoutTopRow();
             sci.Calculated += delegate(string line, string result) { engine.Record(line, result); };
-            Controls.Add(rootPanel);       // Fill goes first so the docked panels claim their space before it
-            Controls.Add(historyPanel);
-            Controls.Add(navPanel);
-            Controls.Add(captionBar);      // added last, so the caption takes the top edge first
+            Controls.AddRange(new Control[] { display, memStrip, sciPanel, mainGrid, historyPanel, navPanel, captionBar });
 
-            historyToggle.AccessibleName = "Журнал";
             foreach (CalcButton b in buttons)
             {
                 string spoken;
@@ -1588,7 +1704,6 @@ namespace Calculator
 
         void BuildHistoryPanel()
         {
-            historyPanel.Dock = DockStyle.Right;
             historyPanel.Width = 280;
             historyPanel.Padding = new Padding(4, 0, 4, 4);
             historyPanel.Visible = false;
@@ -1650,8 +1765,9 @@ namespace Calculator
             paste.Click += delegate { PasteFromClipboard(); };
             displayMenu.Items.Add(copy);
             displayMenu.Items.Add(paste);
-            displayMenu.Opening += delegate
+            displayMenu.Opening += delegate(object s, System.ComponentModel.CancelEventArgs e)
             {
+                if (display.IsOverButton(display.PointToClient(Cursor.Position))) { e.Cancel = true; return; }
                 copy.Enabled = !(scientific ? sci.HasError : engine.HasError);
                 paste.Enabled = ClipboardHasNumber();
             };
@@ -1680,7 +1796,6 @@ namespace Calculator
         /// <summary>The menu opens from the left edge like the history panel does from the right.</summary>
         void BuildNavPanel()
         {
-            navPanel.Dock = DockStyle.Left;
             navPanel.Width = 220;
             navPanel.Padding = new Padding(4, 0, 4, 4);
             navPanel.Visible = false;
@@ -1764,7 +1879,6 @@ namespace Calculator
         /// <summary>Own title bar: icon, name, pin, then minimize, maximize and close. Single HWND with native HTCAPTION and HTMAXBUTTON.</summary>
         void BuildCaption()
         {
-            captionBar.Dock = DockStyle.Top;
             captionBar.Height = 32;
             captionBar.FontFamilyName = family;
             if (Icon != null) captionBar.AppIcon = Icon.ToBitmap();
@@ -1775,6 +1889,61 @@ namespace Calculator
             captionBar.MinimizeClick = delegate { WindowState = FormWindowState.Minimized; };
             captionBar.MaximizeClick = ToggleMaximize;
             captionBar.CloseClick = Close;
+        }
+
+        /// <summary>Positions the title bar, optional side panels and calculator stack in one atomic DeferWindowPos pass.</summary>
+        protected override void OnLayout(LayoutEventArgs levent)
+        {
+            if (memStrip == null || mainGrid == null) return;
+            int w = ClientSize.Width, h = ClientSize.Height;
+            if (w <= 0 || h <= 0) return;
+
+            float k = (DeviceDpi > 0 ? DeviceDpi : 96) / 96f;
+            int captionH = (int)Math.Round(32f * k);
+            int bodyTop = captionH;
+            int bodyH = Math.Max(1, h - captionH);
+            int navW = navPanel.Visible ? navPanel.Width : 0;
+            int histW = historyPanel.Visible ? historyPanel.Width : 0;
+            int calcX = navW;
+            int calcW = Math.Max(1, w - navW - histW);
+
+            int padX = (int)Math.Round(4f * k);
+            int padB = (int)Math.Round(4f * k);
+            int innerX = calcX + padX;
+            int innerW = Math.Max(1, calcW - padX * 2);
+            int innerH = Math.Max(1, bodyH - padB);
+            int memH = (int)Math.Round(28f * k);
+            int sciH = sciPanel.Visible ? sciHeight : 0;
+            int avail = Math.Max(0, innerH - memH - sciH);
+            int displayH = (int)Math.Round(avail * 0.21f);
+            int gridH = Math.Max(1, avail - displayH);
+
+            int n = 0;
+            layoutCtrls[n] = captionBar;
+            layoutBounds[n++] = new Rectangle(0, 0, w, captionH);
+            if (navW > 0)
+            {
+                layoutCtrls[n] = navPanel;
+                layoutBounds[n++] = new Rectangle(0, bodyTop, navW, bodyH);
+            }
+            if (histW > 0)
+            {
+                layoutCtrls[n] = historyPanel;
+                layoutBounds[n++] = new Rectangle(w - histW, bodyTop, histW, bodyH);
+            }
+            layoutCtrls[n] = display;
+            layoutBounds[n++] = new Rectangle(innerX, bodyTop, innerW, Math.Max(1, displayH));
+            layoutCtrls[n] = memStrip;
+            layoutBounds[n++] = new Rectangle(innerX, bodyTop + displayH, innerW, Math.Max(1, memH));
+            if (sciH > 0)
+            {
+                layoutCtrls[n] = sciPanel;
+                layoutBounds[n++] = new Rectangle(innerX, bodyTop + displayH + memH, innerW, sciH);
+            }
+            layoutCtrls[n] = mainGrid;
+            layoutBounds[n++] = new Rectangle(innerX, bodyTop + displayH + memH + sciH, innerW, gridH);
+
+            Win32Layout.Apply(this, layoutCtrls, layoutBounds, n);
         }
 
         int GetTopResizeBorder()
@@ -1971,12 +2140,6 @@ namespace Calculator
             sciButton.Invalidate();
         }
 
-        /// <summary>The journal button sits at the right edge of the top row; the menu button at the left.</summary>
-        void LayoutTopRow()
-        {
-            historyToggle.Left = display.Width - historyToggle.Width - 6;
-        }
-
         void ShowConverter(UnitCategory category)
         {
             if (converter == null || converter.IsDisposed) converter = new ConverterForm(theme, family);
@@ -2084,7 +2247,7 @@ namespace Calculator
             scientific = on;
             int delta = (int)Math.Round(SciPanelHeight * DeviceDpi / 96f);
             SuspendLayout();
-            rootPanel.SciHeight = on ? delta : 0;
+            sciHeight = on ? delta : 0;
             sciPanel.Visible = on;
             if (WindowState == FormWindowState.Normal)
             {
@@ -2153,7 +2316,7 @@ namespace Calculator
             Rectangle b = normal ? Bounds : RestoreBounds;
             int width = b.Width - (normal && historyPanel.Visible ? historyPanel.Width : 0) - (normal && navPanel.Visible ? navPanel.Width : 0);
             // The window is stored without the function panel; it is added again when the mode is restored.
-            int sciExtra = normal && scientific ? rootPanel.SciHeight : 0;
+            int sciExtra = normal && scientific ? sciHeight : 0;
             float k = 96f / DeviceDpi;
             new Settings
             {
@@ -2396,7 +2559,7 @@ namespace Calculator
             else if (c == '-') k = "−";
             else if (c == '*') k = "×";
             else if (c == '/') k = "÷";
-            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused) && !captionBar.Focused && !memStrip.Focused && !sciPanel.Focused && !mainGrid.Focused)) k = "=";   // Enter presses a focused key instead
+            else if (c == '=' || (c == '\r' && !buttons.Exists(b => b.Focused) && !captionBar.Focused && !display.Focused && !memStrip.Focused && !sciPanel.Focused && !mainGrid.Focused)) k = "=";   // Enter presses a focused key instead
             else if (c == ',' || c == '.') k = ",";
             else if (c == '%') k = "%";
             else if (c == '\b') k = "⌫";
